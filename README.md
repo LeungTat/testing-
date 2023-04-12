@@ -210,3 +210,86 @@ const App: React.FC = () => {
 export default App;
 Now you have a TypeScript-based React app that uses Azure AD for authentication and retrieves the authorization code using OAuth2. Remember that the authorization code is only part of the OAuth2 flow and needs to be exchanged for an access token using a backend service.
 ```
+
+
+
+```
+Here is an example of how you can manually implement the authorization code flow in your React app:
+
+First, install the crypto-js package to help generate the code challenge and code verifier:
+bash
+Copy code
+npm install crypto-js
+Add a utility function to create the code challenge and code verifier in a new file pkce.ts:
+typescript
+Copy code
+import { Base64 } from 'crypto-js';
+
+export function generateRandomString(length: number): string {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+export function generateCodeVerifier(): string {
+  return generateRandomString(128);
+}
+
+export function generateCodeChallenge(codeVerifier: string): string {
+  const codeChallenge = Base64.stringify(codeVerifier);
+  return codeChallenge;
+}
+Modify your App.tsx file:
+typescript
+Copy code
+import React, { useState, useEffect } from 'react';
+import './App.css';
+import { generateCodeVerifier, generateCodeChallenge } from './pkce';
+
+const clientId = 'your_client_id';
+const tenantId = 'your_tenant_id';
+const redirectUri = 'http://localhost:3000';
+
+const App: React.FC = () => {
+  const [authCode, setAuthCode] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      setAuthCode(code);
+    }
+  }, []);
+
+  const handleLogin = () => {
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = generateCodeChallenge(codeVerifier);
+    sessionStorage.setItem('code_verifier', codeVerifier);
+
+    const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&response_mode=query&scope=openid%20profile%20email&state=12345&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+    window.location.href = authUrl;
+  };
+
+  return (
+    <div className="App">
+      <h1>Azure AD Authorization Code Example (Manual)</h1>
+      {authCode ? (
+        <div>
+          <p>Authorization code: {authCode}</p>
+        </div>
+      ) : (
+        <button onClick={handleLogin}>Login with Azure AD</button>
+      )}
+    </div>
+  );
+};
+
+export default App;
+This implementation manually initiates the authorization code flow, and when the user is redirected back to the app, it will display the authorization code on the screen. Please note that this example does not handle the token exchange or token validation. You will need to do that on your backend service.
+```
