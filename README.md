@@ -487,3 +487,33 @@ function base64UrlEncode(value: string): string {
   return base64Url;
 }
 ```
+
+
+```
+import { sha256 } from 'crypto-js';
+import { enc } from 'crypto-js';
+
+export function generateRandomString(length: number): string {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+export function generateCodeVerifier(): string {
+  return generateRandomString(128);
+}
+
+export function generateCodeChallenge(codeVerifier: string): string {
+  const hashedCodeVerifier = sha256(codeVerifier);
+  const base64UrlEncodedHash = base64UrlEncode(enc.Base64.stringify(hashedCodeVerifier));
+  return base64UrlEncodedHash;
+}
+
+function base64UrlEncode(value: string): string {
+  const base64Url = value.replace('+', '-').replace('/', '_').replace(/=+$/, '');
+  return base64Url;
+}
+```
