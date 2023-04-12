@@ -362,3 +362,98 @@ This should resolve the "invalid size of Code_Challenge parameter" error.
 
 
 ```
+```
+To create an AWS Lambda function for Azure AD OpenID login using Python, you'll need to first set up an Azure AD App Registration and then create a Python Lambda function to handle the authentication.
+
+Azure AD App Registration:
+Follow these steps to set up an App Registration in the Azure portal:
+
+1.1. Sign in to the Azure portal (https://portal.azure.com/)
+
+1.2. Go to "Azure Active Directory" > "App registrations" > "New registration"
+
+1.3. Provide a name for your application, and under "Supported account types," select the appropriate option for your requirements.
+
+1.4. For "Redirect URI," choose "Web" and enter the following: https://<YOUR_API_GATEWAY_URL>/callback, replacing <YOUR_API_GATEWAY_URL> with the appropriate API Gateway URL.
+
+1.5. Click "Register" to create the application.
+
+1.6. Note the "Application (client) ID" and "Directory (tenant) ID" from the "Overview" tab.
+
+1.7. Go to "Certificates & secrets" > "New client secret" to create a new secret. Note the secret value, as it will not be displayed again.
+
+1.8. Go to "Manifest" and set "accessTokenAcceptedVersion": 2, then save the changes.
+
+Create a Python Lambda function:
+2.1. Set up a new Python project in your local environment. You can use virtualenv or pipenv to manage dependencies. Install the required packages:
+
+bash
+Copy code
+pip install requests
+2.2. Create a file named lambda_function.py and add the following code:
+
+python
+Copy code
+import os
+import json
+import logging
+import requests
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Set Azure AD App Registration settings
+CLIENT_ID = os.environ["CLIENT_ID"]
+CLIENT_SECRET = os.environ["CLIENT_SECRET"]
+TENANT_ID = os.environ["TENANT_ID"]
+
+# Set the Azure AD OpenID configuration URL
+OPENID_CONFIG_URL = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration"
+
+# Get the OpenID configuration
+openid_config = requests.get(OPENID_CONFIG_URL).json()
+
+def lambda_handler(event, context):
+    try:
+        code = event["queryStringParameters"]["code"]
+        redirect_uri = f"https://{event['headers']['Host']}{event['requestContext']['path']}"
+        
+        # Prepare token request data
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "scope": "openid"
+        }
+
+        # Request the access token
+        response = requests.post(openid_config["token_endpoint"], data=data)
+        response.raise_for_status()
+
+        # Parse the access token
+        token_data = response.json()
+        access_token = token_data["access_token"]
+
+        # Call the Azure AD UserInfo endpoint
+        user_info = requests.get(
+            openid_config["userinfo_endpoint"],
+            headers={"Authorization": f"Bearer {access_token}"}
+        ).json()
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "Authenticated successfully", "user": user_info}),
+            "headers": {"Content-Type": "application/json"}
+        }
+
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"message": "Authentication failed"}),
+            "headers": {"Content-Type": "application/json"}
+        }
+```        
