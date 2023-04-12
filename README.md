@@ -292,4 +292,38 @@ const App: React.FC = () => {
 
 export default App;
 This implementation manually initiates the authorization code flow, and when the user is redirected back to the app, it will display the authorization code on the screen. Please note that this example does not handle the token exchange or token validation. You will need to do that on your backend service.
+
+
+
+
+Apologies for the oversight. I made an error in the import statement. Instead of using Base64 from crypto-js, you should import the sha256 function and use it to generate the code challenge.
+
+Here's the corrected pkce.ts:
+
+typescript
+Copy code
+import { sha256 } from 'crypto-js';
+
+export function generateRandomString(length: number): string {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+export function generateCodeVerifier(): string {
+  return generateRandomString(128);
+}
+
+export function generateCodeChallenge(codeVerifier: string): string {
+  const hashedCodeVerifier = sha256(codeVerifier);
+  const base64UrlEncodedHash = btoa(hashedCodeVerifier.toString())
+    .replace('+', '-')
+    .replace('/', '_')
+    .replace(/=+$/, '');
+  return base64UrlEncodedHash;
+}
+The generateCodeChallenge function now imports the sha256 function from crypto-js and uses it to hash the code verifier. The hashed code verifier is then Base64Url encoded to create the code challenge.
 ```
