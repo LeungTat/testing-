@@ -54,3 +54,80 @@ def lambda_handler(event, context):
         
         
 ```        
+
+
+```
+To get an authorization code from Azure AD using React, you can use the MSAL library. Here's a sample code snippet demonstrating how to do it:
+
+Install MSAL:
+bash
+Copy code
+npm install @azure/msal-browser
+Create a configuration file msalConfig.js in the src folder:
+javascript
+Copy code
+export const msalConfig = {
+  auth: {
+    clientId: 'your_client_id',
+    authority: 'https://login.microsoftonline.com/your_tenant_id',
+    redirectUri: 'http://localhost:3000',
+    knownAuthorities: ['login.microsoftonline.com'],
+  },
+  cache: {
+    cacheLocation: 'localStorage',
+    storeAuthStateInCookie: false,
+  },
+};
+Replace your_client_id and your_tenant_id with the actual values from your Azure AD app registration.
+
+In your App.js, import the required modules and configure MSAL:
+javascript
+Copy code
+import React, { useState, useEffect } from 'react';
+import { PublicClientApplication, InteractionRequiredAuthError, InteractionType, EventType } from '@azure/msal-browser';
+import { msalConfig } from './msalConfig';
+
+const pca = new PublicClientApplication(msalConfig);
+Create a function to initiate the login process and obtain the authorization code:
+javascript
+Copy code
+const handleLogin = async () => {
+  try {
+    const authResult = await pca.loginPopup({
+      scopes: ['openid', 'profile', 'email'],
+      prompt: 'select_account',
+      responseMode: 'query',
+      codeChallengeMethod: 'S256',
+    });
+
+    if (authResult && authResult.code) {
+      console.log('Authorization code:', authResult.code);
+    }
+  } catch (error) {
+    if (error instanceof InteractionRequiredAuthError) {
+      pca.loginRedirect({
+        scopes: ['openid', 'profile', 'email'],
+        prompt: 'select_account',
+        responseMode: 'query',
+        codeChallengeMethod: 'S256',
+      });
+    } else {
+      console.error('Login failed:', error);
+    }
+  }
+};
+Finally, add a button to trigger the login process:
+javascript
+Copy code
+function App() {
+  return (
+    <div className="App">
+      <h1>Azure AD Authorization Code Example</h1>
+      <button onClick={handleLogin}>Login with Azure AD</button>
+    </div>
+  );
+}
+Now, when you click the "Login with Azure AD" button, it will initiate the login process, and once completed, you'll receive an authorization code in the console. Remember that this code is only part of the OAuth2 flow and needs to be exchanged for an access token using a backend service.
+
+Note: This example assumes you have a single-page React app. For server-rendered apps, the process may be different.
+```
