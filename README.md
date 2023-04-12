@@ -326,4 +326,39 @@ export function generateCodeChallenge(codeVerifier: string): string {
   return base64UrlEncodedHash;
 }
 The generateCodeChallenge function now imports the sha256 function from crypto-js and uses it to hash the code verifier. The hashed code verifier is then Base64Url encoded to create the code challenge.
+
+
+ apologize for the oversight. The issue is caused by the way the code challenge is generated. The generateCodeChallenge function needs to be updated to correctly hash and encode the code verifier. Here's the corrected pkce.ts:
+
+typescript
+Copy code
+import { sha256 } from 'crypto-js';
+import { enc } from 'crypto-js';
+
+export function generateRandomString(length: number): string {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+export function generateCodeVerifier(): string {
+  return generateRandomString(128);
+}
+
+export function generateCodeChallenge(codeVerifier: string): string {
+  const hashedCodeVerifier = sha256(codeVerifier);
+  const base64UrlEncodedHash = enc.Base64.stringify(hashedCodeVerifier)
+    .replace('+', '-')
+    .replace('/', '_')
+    .replace(/=+$/, '');
+  return base64UrlEncodedHash;
+}
+Now, the generateCodeChallenge function imports both sha256 and enc from crypto-js. It hashes the code verifier using sha256 and then encodes it using enc.Base64. The resulting string is then modified to be URL-safe by replacing characters and removing trailing equal signs.
+
+This should resolve the "invalid size of Code_Challenge parameter" error.
+
+
 ```
