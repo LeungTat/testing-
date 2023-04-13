@@ -761,3 +761,40 @@ function base64UrlEncode(value: string): string {
 }
 With these files, you now have a complete React application that retrieves the authorization code and sends it to the Express.js backend server to exchange it for an access token.
 ```
+
+```
+Apologies for the confusion. It seems that the issue is due to the fact that the code_verifier is being stored in the session storage, but when the page is redirected, the storage might be cleared. Let's modify the code to store the code_verifier in the local storage to maintain its value throughout the process.
+
+Update the handleLogin function in your App.tsx file as follows:
+
+typescript
+Copy code
+const handleLogin = () => {
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+  localStorage.setItem('code_verifier', codeVerifier); // Change this line
+
+  const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
+    redirectUri
+  )}&response_mode=query&scope=openid%20profile%20email&state=12345&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+  window.location.href = authUrl;
+};
+Also, update the useEffect function to retrieve the code_verifier from the local storage:
+
+typescript
+Copy code
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (code) {
+    setAuthCode(code);
+
+    const codeVerifier = localStorage.getItem('code_verifier'); // Change this line
+    if (codeVerifier) {
+      exchangeCodeForToken(code, codeVerifier);
+    }
+  }
+}, []);
+Now, the code_verifier will be stored in the local storage, and it should persist even when the page is redirected. This should resolve the "code_verifier does not match the code_challenge" error.
+```
