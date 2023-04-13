@@ -798,3 +798,94 @@ useEffect(() => {
 }, []);
 Now, the code_verifier will be stored in the local storage, and it should persist even when the page is redirected. This should resolve the "code_verifier does not match the code_challenge" error.
 ```
+
+
+```
+Certainly! Here's a Python AWS Lambda function that can exchange the authorization code for an access token using Azure AD:
+
+First, make sure you have the boto3, requests, and python-dotenv packages installed:
+bash
+Copy code
+pip install boto3 requests python-dotenv
+Create a new file named lambda_function.py with the following content:
+python
+Copy code
+import os
+import json
+import boto3
+import requests
+from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# Set up your Azure AD app details
+CLIENT_ID = os.environ['CLIENT_ID']
+CLIENT_SECRET = os.environ['CLIENT_SECRET']
+TENANT_ID = os.environ['TENANT_ID']
+REDIRECT_URI = os.environ['REDIRECT_URI']
+
+
+def lambda_handler(event, context):
+    # Extract the code and code_verifier from the event
+    code = event['code']
+    code_verifier = event['code_verifier']
+
+    # Prepare the token request data
+    token_url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    data = {
+        "grant_type": "authorization_code",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
+        "code": code,
+        "code_verifier": code_verifier,
+    }
+
+    # Send the token request
+    response = requests.post(token_url, headers=headers, data=data)
+
+    if response.status_code == 200:
+        # Successfully retrieved the access token
+        access_token = response.json()['access_token']
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'access_token': access_token,
+            }),
+        }
+    else:
+        # Failed to retrieve the access token
+        return {
+            'statusCode': response.status_code,
+            'body': json.dumps({
+                'error': response.json(),
+            }),
+        }
+Create a .env file in the same folder as lambda_function.py and add the following environment variables:
+makefile
+Copy code
+CLIENT_ID=your_client_id
+CLIENT_SECRET=your_client_secret
+TENANT_ID=your_tenant_id
+REDIRECT_URI=http://localhost:3000
+Make sure to replace your_client_id, your_client_secret, and your_tenant_id with the appropriate values from your Azure AD app registration. Also, update the REDIRECT_URI if necessary.
+
+You can deploy this Lambda function using the AWS Management Console, AWS CLI, or any other deployment tool that supports AWS Lambda. Don't forget to include the requests and python-dotenv packages in your deployment package.
+
+To test the Lambda function, you can invoke it with an event containing the code and code_verifier:
+
+json
+Copy code
+{
+  "code": "your_authorization_code",
+  "code_verifier": "your_code_verifier"
+}
+Replace your_authorization_code and your_code_verifier with the actual values obtained from the frontend.
+
+After deploying and testing the Lambda function, you should be able to exchange the authorization code for an access token using Azure AD.
+```
