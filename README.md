@@ -889,3 +889,69 @@ Replace your_authorization_code and your_code_verifier with the actual values ob
 
 After deploying and testing the Lambda function, you should be able to exchange the authorization code for an access token using Azure AD.
 ```
+
+
+```
+To create an AWS Lambda function that calls the Microsoft Graph API to get the group information of a user, follow these steps:
+
+Make sure you have the required Python packages installed:
+bash
+Copy code
+pip install boto3 requests python-dotenv
+Create a new file named lambda_function.py with the following content:
+python
+Copy code
+import os
+import json
+import boto3
+import requests
+from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# Set up your Azure AD app details
+CLIENT_ID = os.environ['CLIENT_ID']
+TENANT_ID = os.environ['TENANT_ID']
+
+def get_user_groups(access_token, user_id):
+    graph_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/memberOf"
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    response = requests.get(graph_url, headers=headers)
+    return response.json()
+
+def lambda_handler(event, context):
+    access_token = event['access_token']
+    user_id = event['user_id']
+
+    user_groups = get_user_groups(access_token, user_id)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps(user_groups)
+    }
+Create a .env file in the same folder as lambda_function.py and add the following environment variables:
+makefile
+Copy code
+CLIENT_ID=your_client_id
+TENANT_ID=your_tenant_id
+Replace your_client_id and your_tenant_id with the appropriate values from your Azure AD app registration.
+
+Deploy the Lambda function to AWS using the AWS Management Console, AWS CLI, or any other deployment tool that supports AWS Lambda. Make sure to include the requests and python-dotenv packages in your deployment package.
+
+To test the Lambda function, you can invoke it with an event containing the access_token and user_id:
+
+json
+Copy code
+{
+  "access_token": "your_access_token",
+  "user_id": "your_user_id"
+}
+Replace your_access_token and your_user_id with the actual values obtained from the frontend or another source.
+
+After deploying and testing the Lambda function, you should be able to use it to call the Microsoft Graph API and retrieve the group information of a user with a valid access token.
+```
