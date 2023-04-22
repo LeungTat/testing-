@@ -1026,3 +1026,152 @@ Replace your_access_token with the actual value obtained from the frontend or an
 
 After deploying and testing the Lambda function, you should be able to use it to call the Microsoft Graph API and retrieve the filtered user groups with a valid access token.
 ```
+
+```
+Please create a aws lambda code for azure ad login using username and password with python 
+
+To create an AWS Lambda function for Azure AD login using a username and password in Python, you will need to use the Resource Owner Password Credentials (ROPC) flow. However, this flow is not recommended for most applications because it requires handling user credentials directly, which can lead to security vulnerabilities.
+
+Microsoft strongly advises against using the ROPC flow, and it's not supported for use with multi-factor authentication or Microsoft personal accounts. It is highly recommended to use other OAuth2 flows, such as the Authorization Code flow or the Implicit flow.
+
+If you understand the risks and limitations and still want to proceed with the ROPC flow, here's a simple example of how to implement it using an AWS Lambda function in Python:
+
+Install the required Python packages:
+bash
+Copy code
+pip install boto3 requests
+Create a new file named lambda_function.py with the following content:
+python
+Copy code
+import os
+import json
+import boto3
+import requests
+from botocore.exceptions import ClientError
+
+# Set up your Azure AD app details
+CLIENT_ID = os.environ['CLIENT_ID']
+TENANT_ID = os.environ['TENANT_ID']
+CLIENT_SECRET = os.environ['CLIENT_SECRET']
+
+def get_access_token(username, password):
+    token_url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/token"
+    data = {
+        "grant_type": "password",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "resource": "https://graph.microsoft.com",
+        "username": username,
+        "password": password,
+        "scope": "openid"
+    }
+
+    response = requests.post(token_url, data=data)
+    return response.json()
+
+def lambda_handler(event, context):
+    username = event['username']
+    password = event['password']
+
+    token_response = get_access_token(username, password)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps(token_response)
+    }
+Set the required environment variables for the Lambda function:
+CLIENT_ID: Your Azure AD app client ID
+TENANT_ID: Your Azure AD tenant ID
+CLIENT_SECRET: Your Azure AD app client secret
+Deploy the Lambda function to AWS using the AWS Management Console, AWS CLI, or any other deployment tool that supports AWS Lambda. Make sure to include the requests package in your deployment package.
+
+To test the Lambda function, you can invoke it with an event containing the username and password:
+
+json
+Copy code
+{
+  "username": "your_username",
+  "password": "your_password"
+}
+Replace your_username and your_password with actual values.
+
+Keep in mind that using the ROPC flow is not recommended, and you should consider alternative authentication flows for better security and user experience.
+
+
+
+
+
+anthonykslai@gmail.com
+Please help to write a test case for it 
+To write a test case for the Lambda function, you can use Python's built-in unittest library. You will also need to use the unittest.mock library to mock the requests.post method to avoid making actual HTTP requests during the test.
+
+Install the required Python packages for testing:
+bash
+Copy code
+pip install unittest requests-mock
+Create a new file named test_lambda_function.py with the following content:
+python
+Copy code
+import unittest
+import json
+from unittest.mock import patch
+import requests_mock
+import lambda_function
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("requests.post")
+    def test_get_access_token(self, mock_post):
+        mock_response = {
+            "access_token": "mock_access_token",
+            "token_type": "Bearer",
+            "expires_in": 3600
+        }
+
+        mock_post.return_value.json.return_value = mock_response
+
+        result = lambda_function.get_access_token("test_username", "test_password")
+
+        self.assertEqual(result, mock_response)
+
+    def test_lambda_handler(self):
+        with requests_mock.Mocker() as m:
+            mock_response = {
+                "access_token": "mock_access_token",
+                "token_type": "Bearer",
+                "expires_in": 3600
+            }
+
+            m.post("https://login.microsoftonline.com/{}/oauth2/token".format(lambda_function.TENANT_ID), json=mock_response)
+
+            event = {
+                "username": "test_username",
+                "password": "test_password"
+            }
+
+            response = lambda_function.lambda_handler(event, None)
+
+            self.assertEqual(response["statusCode"], 200)
+            self.assertEqual(json.loads(response["body"]), mock_response)
+
+if __name__ == "__main__":
+    unittest.main()
+This script defines two test cases:
+
+test_get_access_token tests the get_access_token function. It uses the unittest.mock.patch decorator to mock the requests.post method and provide a fake response.
+test_lambda_handler tests the lambda_handler function. It uses the requests_mock library to mock the HTTP request made by the get_access_token function during the test.
+To run the test cases, execute the following command:
+
+bash
+Copy code
+python test_lambda_function.py
+This command will run the tests and display the results. If the tests pass, you should see output similar to the following:
+
+markdown
+Copy code
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.006s
+
+OK
+```
