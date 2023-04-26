@@ -1240,3 +1240,66 @@ def lambda_handler(event, context):
             "headers": {"Content-Type": "application/json"}
         }
   ```
+
+```
+To check if the get_user_transitive_groups function has any error response and raise an error message, you can update the function to handle different status codes returned by the Microsoft Graph API.
+
+Update the get_user_transitive_groups function in the authorizer.py file as follows:
+
+python
+Copy code
+def get_user_transitive_groups(access_token):
+    graph_url = "https://graph.microsoft.com/v1.0/me/transitiveMemberOf"
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    response = requests.get(graph_url, headers=headers)
+    
+    if response.status_code == 200:
+        return response.json()
+    elif response.status_code == 401:
+        raise Exception("Unauthorized: Invalid or expired access token")
+    elif response.status_code == 403:
+        raise Exception("Forbidden: Insufficient permissions to access the resource")
+    else:
+        raise Exception(f"Error: {response.status_code} - {response.text}")
+In this updated version of the function, we check the status code of the response. If it's 200, we return the JSON data. If it's 401, we raise an "Unauthorized" exception. If it's 403, we raise a "Forbidden" exception. For other status codes, we raise a generic "Error" exception with the status code and response text.
+
+Next, update the lambda_handler function to handle the exceptions raised by the get_user_transitive_groups function:
+
+python
+Copy code
+def lambda_handler(event, context):
+    access_token = event['authorizationToken']
+    
+    try:
+        # Replace 'your_secret_key' with your actual secret key
+        decoded_token = decode(access_token, 'your_secret_key', algorithms=['HS256'])
+    except exceptions.InvalidTokenError:
+        return {
+            "statusCode": 401,
+            "body": "Invalid JWT"
+        }
+
+    try:
+        user_transitive_groups = get_user_transitive_groups(access_token)
+    except Exception as e:
+        return {
+            "statusCode": 400,
+            "body": str(e)
+        }
+
+    group_name = "your_group_name" # Replace with the name of the group to check
+    user_in_group = is_user_in_group(user_transitive_groups, group_name)
+
+    principal_id = "user"
+
+    if user_in_group:
+        return generate_policy(principal_id, 'Allow', event['methodArn'])
+    else:
+        return generate_policy(principal_id, 'Deny', event['methodArn'])
+In this updated version of the lambda_handler function, we use a try-except block to catch exceptions raised by the get_user_transitive_groups function. If an exception is caught, we return a 400 status code with the error message from the exception.
+
+Now, if there's an error response from the Microsoft Graph API, the Lambda authorizer will return an appropriate error message.
+```
