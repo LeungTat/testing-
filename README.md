@@ -1175,3 +1175,68 @@ Ran 2 tests in 0.006s
 
 OK
 ```
+
+```
+import os
+import json
+import logging
+import requests
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Set Azure AD App Registration settings
+CLIENT_ID = os.environ["CLIENT_ID"]
+CLIENT_SECRET = os.environ["CLIENT_SECRET"]
+TENANT_ID = os.environ["TENANT_ID"]
+
+# Set the Azure AD OpenID configuration URL
+OPENID_CONFIG_URL = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration"
+
+# Get the OpenID configuration
+openid_config = requests.get(OPENID_CONFIG_URL).json()
+
+def lambda_handler(event, context):
+    try:
+        code = event["queryStringParameters"]["code"]
+        redirect_uri = f"https://{event['headers']['Host']}{event['requestContext']['path']}"
+        
+        # Prepare token request data
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "scope": "openid"
+        }
+
+        # Request the access token
+        response = requests.post(openid_config["token_endpoint"], data=data)
+        response.raise_for_status()
+
+        # Parse the access token
+        token_data = response.json()
+        access_token = token_data["access_token"]
+
+        # Call the Azure AD UserInfo endpoint
+        user_info = requests.get(
+            openid_config["userinfo_endpoint"],
+            headers={"Authorization": f"Bearer {access_token}"}
+        ).json()
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "Authenticated successfully", "user": user_info}),
+            "headers": {"Content-Type": "application/json"}
+        }
+
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"message": "Authentication failed"}),
+            "headers": {"Content-Type": "application/json"}
+        }
+  ```
