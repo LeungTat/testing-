@@ -1303,3 +1303,52 @@ In this updated version of the lambda_handler function, we use a try-except bloc
 
 Now, if there's an error response from the Microsoft Graph API, the Lambda authorizer will return an appropriate error message.
 ```
+
+```
+import json
+import unittest
+from unittest.mock import Mock, patch
+import lambda_function
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("requests.post")
+    @patch("requests.get")
+    def test_successful_authentication(self, mock_get, mock_post):
+        # Mock the token endpoint response
+        token_response = Mock()
+        token_response.json.return_value = {
+            "access_token": "sample_access_token",
+            "token_type": "Bearer",
+            "expires_in": 3600
+        }
+        mock_post.return_value = token_response
+        
+        # Mock the OpenID configuration response
+        openid_config_response = Mock()
+        openid_config_response.json.return_value = {
+            "issuer": "https://login.microsoftonline.com/{tenantid}/v2.0",
+            "authorization_endpoint": "https://login.microsoftonline.com/{tenantid}/oauth2/v2.0/authorize",
+            "token_endpoint": "https://login.microsoftonline.com/{tenantid}/oauth2/v2.0/token",
+            "userinfo_endpoint": "https://graph.microsoft.com/oidc/userinfo",
+            "jwks_uri": "https://login.microsoftonline.com/{tenantid}/discovery/v2.0/keys"
+        }
+        mock_get.return_value = openid_config_response
+
+        # Mock the event object received by the Lambda function
+        event = {
+            "queryStringParameters": {"code": "sample_authorization_code"},
+            "headers": {"Host": "sample-api-gateway-url"},
+            "requestContext": {"path": "/callback"}
+        }
+
+        response = lambda_function.lambda_handler(event, None)
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(json.loads(response["body"]), {"access_token": "sample_access_token"})
+        mock_post.assert_called_once()
+        mock_get.assert_called_once()
+
+if __name__ == "__main__":
+    unittest.main()
+    ```
