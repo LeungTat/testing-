@@ -1354,24 +1354,25 @@ if __name__ == "__main__":
     ```
 
 ```
+
 import pyautogui
 import time
 
-# 设置移动的时间间隔和总时间
+设置移动的时间间隔和总时间
 interval = 1  # 移动的时间间隔（秒）
 total_time = 10  # 移动的总时间（秒）
 
-# 获取当前鼠标位置
+获取当前鼠标位置
 start_x, start_y = pyautogui.position()
 
-# 计算移动的目标位置
+计算移动的目标位置
 end_x = start_x + 100  # 在x轴方向移动100个像素
 end_y = start_y + 100  # 在y轴方向移动100个像素
 
-# 计算移动的次数
+计算移动的次数
 num_steps = int(total_time / interval)
 
-# 开始移动鼠标
+开始移动鼠标
 for i in range(num_steps):
     # 计算每步移动的增量
     delta_x = (end_x - start_x) / num_steps
@@ -1387,6 +1388,7 @@ for i in range(num_steps):
     # 等待一段时间
     time.sleep(interval)
 
-# 移动完成后，将鼠标移动回起始位置
+移动完成后，将鼠标移动回起始位置
 pyautogui.moveTo(start_x, start_y)
+
 ```
