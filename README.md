@@ -1392,3 +1392,37 @@ for i in range(num_steps):
 pyautogui.moveTo(start_x, start_y)
 
 ```
+
+
+```
+import pyautogui
+import time
+
+# 设置移动的时间间隔
+interval = 1  # 移动的时间间隔（秒）
+
+# 获取屏幕的宽度和高度
+screen_width, screen_height = pyautogui.size()
+
+# 设置初始位置
+x = 0
+y = 0
+
+# 开始移动鼠标
+while True:
+    # 移动鼠标到指定位置
+    pyautogui.moveTo(x, y, duration=interval)
+
+    # 更新坐标
+    x += 10
+    y += 10
+
+    # 判断是否达到屏幕边界
+    if x >= screen_width:
+        x = 0
+    if y >= screen_height:
+        y = 0
+
+    # 等待一段时间
+    time.sleep(interval)
+    ```
