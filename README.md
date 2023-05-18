@@ -1426,3 +1426,47 @@ while True:
     # 等待一段时间
     time.sleep(interval)
     ```
+
+
+```
+import axios from 'axios';
+
+const url = 'https://api.example.com/endpoint'; // Replace with the actual API endpoint URL
+
+// Optional: Define headers, parameters, and payload
+const headers = {
+  Authorization: 'Bearer <your_access_token>',
+  'Content-Type': 'application/json'
+};
+
+const params = {
+  param1: 'value1',
+  param2: 'value2'
+};
+
+const payload = {
+  key1: 'value1',
+  key2: 'value2'
+};
+
+// Make the API request
+async function makeRequest(): Promise<void> {
+  try {
+    const response = await axios.get(url, {
+      headers: headers,
+      params: params,
+      data: payload
+    });
+    // For other HTTP methods, replace 'get' with 'post', 'put', 'delete', etc.
+
+    // API request was successful
+    const data = response.data; // Extract the JSON data from the response
+    console.log(data);
+  } catch (error) {
+    // API request failed
+    console.error('An error occurred:', error.message);
+  }
+}
+
+makeRequest();
+```
