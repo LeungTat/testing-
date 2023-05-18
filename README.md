@@ -1470,3 +1470,44 @@ async function makeRequest(): Promise<void> {
 
 makeRequest();
 ```
+
+```
+
+import requests
+
+url = "https://api.example.com/endpoint"  # Replace with the actual API endpoint URL
+
+# Optional: Define headers, parameters, and payload
+headers = {
+    "Authorization": "Bearer <your_access_token>",
+    "Content-Type": "application/json"
+}
+
+params = {
+    "param1": "value1",
+    "param2": "value2"
+}
+
+payload = {
+    "key1": "value1",
+    "key2": "value2"
+}
+
+# Make the API request
+try:
+    response = requests.get(url, headers=headers, params=params, json=payload)
+    # For other HTTP methods, replace 'get' with 'post', 'put', 'delete', etc.
+
+    # Check the response status code
+    if response.status_code == requests.codes.ok:
+        # API request was successful
+        data = response.json()  # Extract the JSON data from the response
+        print(data)
+    else:
+        # API request failed
+        print("Request failed with status code:", response.status_code)
+
+except requests.exceptions.RequestException as e:
+    print("An error occurred:", e)
+    
+    ```
