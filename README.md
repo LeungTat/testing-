@@ -1511,3 +1511,10 @@ except requests.exceptions.RequestException as e:
     print("An error occurred:", e)
     
     ```
+    
+    ```
+    const jwtToken = 'your_jwt_token';  // Replace with your actual JWT
+
+const decodedToken = JSON.parse(atob(jwtToken.split('.')[1]));
+console.log(decodedToken);
+```
