@@ -1518,3 +1518,161 @@ except requests.exceptions.RequestException as e:
 const decodedToken = JSON.parse(atob(jwtToken.split('.')[1]));
 console.log(decodedToken);
 ```
+
+
+```
+import unittest
+from unittest.mock import patch, MagicMock
+from botocore.exceptions import ClientError
+import your_module  # Replace this with the actual module name where your lambda_handler function is defined
+
+class TestLambdaHandler(unittest.TestCase):
+    @patch('os.environ', return_value={'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
+    @patch('your_module.boto3.session.Session')
+    @patch('your_module.requests.post')
+    def test_lambda_handler(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        # Arrange
+        mock_event = {
+            'body': '{"username": "test_user", "password": "test_password"}'
+        }
+        mock_context = {}
+
+        # Mocking boto3 secret manager response
+        mock_secrets_client = MagicMock()
+        boto_session_mock.return_value.client.return_value = mock_secrets_client
+        mock_secrets_client.get_secret_value.return_value = {'SecretString': 'test_secret'}
+
+        # Mocking requests post response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {'access_token': 'test_access_token'}
+        requests_post_mock.return_value = mock_response
+
+        expected_output = {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Credentials': 'true',
+                'Content-Type': 'application/json',
+            },
+            'body': '{"access_token": "test_access_token"}'
+        }
+
+        # Act
+        actual_output = your_module.lambda_handler(mock_event, mock_context)
+
+        # Assert
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
+    @patch('your_module.boto3.session.Session')
+    @patch('your_module.requests.post')
+    def test_lambda_handler_error(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        # Arrange
+        mock_event = {
+            'body': '{"username": "test_user", "password": "test_password"}'
+        }
+        mock_context = {}
+
+        # Mocking boto3 secret manager response
+        mock_secrets_client = MagicMock()
+        boto_session_mock.return_value.client.return_value = mock_secrets_client
+        mock_secrets_client.get_secret_value.return_value = {'SecretString': 'test_secret'}
+
+        # Mocking requests post response to throw an exception
+        requests_post_mock.side_effect = Exception("Test Exception")
+
+        expected_output = {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Credentials': 'true',
+                'Content-Type': 'application/json',
+            },
+            'body': '{}'
+        }
+
+        # Act
+        actual_output = your_module.lambda_handler(mock_event, mock_context)
+
+        # Assert
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
+    @patch('your_module.boto3.session.Session')
+    def test_lambda_handler_client_error(self, boto_session_mock, os_environ_mock):
+        # Arrange
+        mock_event = {
+            'body': '{"username": "test_user", "password": "test_password"}'
+        }
+        mock_context = {}
+        mock_secrets_client = MagicMock()
+        boto_session_mock.return_value.client.return_value = mock_secrets_client
+        mock_secrets_client.get_secret_value.side_effect = ClientError({"Error": {"Code": "SecretNotFound"}}, "get_secret_value")
+
+        expected_output = {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Credentials': 'true',
+                'Content-Type': 'application/json',
+            },
+            'body': '{}'
+        }
+
+        # Act
+        actual_output = your_module.lambda_handler(mock_event, mock_context)
+
+        # Assert
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
+    def test_lambda_handler_bad_request(self, os_environ_mock):
+        # Arrange
+        mock_event = {
+            'body': 'This is not valid JSON'
+        }
+        mock_context = {}
+
+        expected_output = {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Credentials': 'true',
+                'Content-Type': 'application/json',
+            },
+            'body': '{}'
+        }
+
+        # Act
+        actual_output = your_module.lambda_handler(mock_event, mock_context)
+
+        # Assert
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
+    def test_lambda_handler_missing_credentials(self, os_environ_mock):
+        # Arrange
+        mock_event = {
+            'body': '{"username": "test_user"}'  # Missing password
+        }
+        mock_context = {}
+
+        expected_output = {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Credentials': 'true',
+                'Content-Type': 'application/json',
+            },
+            'body': '{}'
+        }
+
+        # Act
+        actual_output = your_module.lambda_handler(mock_event, mock_context)
+
+        # Assert
+        self.assertEqual(actual_output, expected_output)
+
+if __name__ == '__main__':
+    unittest.main()
+```
