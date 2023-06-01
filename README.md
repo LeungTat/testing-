@@ -1682,3 +1682,72 @@ if __name__ == '__main__':
 @patch.dict(os.environ, {'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
 
 ```
+```
+import boto3
+import json
+import logging
+import requests
+import os
+from botocore.exceptions import ClientError
+from http import HTTPStatus
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def get_secret(client, secret_name):
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        logger.error(f"Client error retrieving secret {secret_name}, exception {e.response['Error']['Code']}")
+        raise e
+    else:
+        if 'SecretString' in get_secret_value_response:
+            return get_secret_value_response['SecretString']
+        else:
+            raise ValueError(f"Unexpected response from AWS Secrets Manager: {get_secret_value_response}")
+
+def build_response(status_code, body, message=None):
+    headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': 'true',
+        'Content-Type': 'application/json',
+    }
+    response = {
+        'statusCode': status_code,
+        'body': body,
+        'headers': headers,
+    }
+    if message is not None:
+        response['body']["Message"] = message
+    return response
+
+def lambda_handler(event, context):
+    try:
+        body = json.loads(event.get('body', '{}'))  # default to an empty dict if 'body' is not in event
+        username = body.get('username')
+        password = body.get('password')
+
+        if not username or not password:
+            logger.error('Missing username or password in request body')
+            return build_response(HTTPStatus.BAD_REQUEST, {}, 'Missing username or password')
+
+        session = boto3.session.Session()
+        secretsmanager_client = session.client(service_name='secretsmanager', region_name=os.environ['AWS_REGION'])
+        client_secret = get_secret(secretsmanager_client, os.environ['SECRET_KEY_NAME'])
+
+        token_url = "https://login.microsoftonline.com/organization/oauth2/v2.0/token"
+        data = {
+            'grant_type': 'password',
+            'client_id': os.environ['CLIENT_ID'],
+            'client_secret': client_secret,
+            'username': username,
+            'password': password,
+            'scope': "openid"
+        }
+
+        response = requests.post(token_url, data=data)
+        return build_response(HTTPStatus.OK, json.dumps(response.json()))
+    except Exception as e:
+        logger.error('Unknown error: {}'.format(str(e)))
+        return build_response(HTTPStatus.INTERNAL_SERVER_ERROR, {}, "Internal error")
+```
