@@ -1676,3 +1676,9 @@ class TestLambdaHandler(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+
+
+```
+@patch.dict(os.environ, {'SECRET_KEY_NAME': 'test_secret_key_name', 'CLIENT_ID': 'test_client_id', 'AWS_REGION': 'test_region'})
+
+```
