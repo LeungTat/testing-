@@ -1870,3 +1870,36 @@ class TestLambdaHandler(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
     ```
+    
+    
+```
+import unittest
+from your_module import get_user_transitive_groups
+
+class TestGetUserTransitiveGroups(unittest.TestCase):
+
+    def test_valid_user(self):
+        username = "valid_user"
+        expected_groups = ['group1', 'group2', 'group3']
+        actual_groups = get_user_transitive_groups(username)
+        self.assertEqual(actual_groups, expected_groups)
+
+    def test_user_no_groups(self):
+        username = "user_no_groups"
+        expected_groups = []
+        actual_groups = get_user_transitive_groups(username)
+        self.assertEqual(actual_groups, expected_groups)
+
+    def test_non_existent_user(self):
+        username = "non_existent_user"
+        with self.assertRaises(UserDoesNotExistError):
+            get_user_transitive_groups(username)
+
+    def test_invalid_input_type(self):
+        username = 123456 # this should raise an error since username should be a string
+        with self.assertRaises(TypeError):
+            get_user_transitive_groups(username)
+
+if __name__ == '__main__':
+    unittest.main()
+ ```   
