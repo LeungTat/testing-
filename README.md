@@ -1903,3 +1903,47 @@ class TestGetUserTransitiveGroups(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
  ```   
+
+```
+import unittest
+from your_module import filter_user_groups, aws_account_filter
+
+class TestFilterUserGroups(unittest.TestCase):
+
+    def test_valid_groups(self):
+        groups = [{'displayName': 'group1'}, {'displayName': 'group2'}]
+        target_account = 'targetAccount'
+        expected_filtered_groups = ['group1', 'group2']
+        actual_filtered_groups = filter_user_groups(groups, target_account)
+        self.assertEqual(actual_filtered_groups, expected_filtered_groups)
+
+    def test_no_groups(self):
+        groups = []
+        target_account = 'targetAccount'
+        expected_filtered_groups = []
+        actual_filtered_groups = filter_user_groups(groups, target_account)
+        self.assertEqual(actual_filtered_groups, expected_filtered_groups)
+
+class TestAwsAccountFilter(unittest.TestCase):
+
+    def test_valid_groups(self):
+        groups = {'value': [{'displayName': 'AWS-1234567890-InfraDevops'}, {'displayName': 'AWS-9876543210-InfraDevops'}]}
+        expected_accounts = ['1234567890', '9876543210']
+        actual_accounts = aws_account_filter(groups)
+        self.assertEqual(actual_accounts, expected_accounts)
+
+    def test_no_groups(self):
+        groups = {'value': []}
+        expected_accounts = []
+        actual_accounts = aws_account_filter(groups)
+        self.assertEqual(actual_accounts, expected_accounts)
+
+    def test_no_matching_groups(self):
+        groups = {'value': [{'displayName': 'non-matching-group1'}, {'displayName': 'non-matching-group2'}]}
+        expected_accounts = []
+        actual_accounts = aws_account_filter(groups)
+        self.assertEqual(actual_accounts, expected_accounts)
+
+if __name__ == '__main__':
+    unittest.main()
+```    
