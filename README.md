@@ -1751,3 +1751,122 @@ def lambda_handler(event, context):
         logger.error('Unknown error: {}'.format(str(e)))
         return build_response(HTTPStatus.INTERNAL_SERVER_ERROR, {}, "Internal error")
 ```
+
+```
+import unittest
+import your_module
+import json
+
+class TestLambdaHandler(unittest.TestCase):
+
+    def test_GET_request_authorized_with_jwt(self):
+        event = {
+            'type': 'REQUEST',
+            'requestContext': {
+                'requestId': '123'
+            },
+            'methodArn': 'arn:aws:execute-api:us-west-2:1234567890:apiId/stage/method/resourcePath',
+            'httpMethod': 'GET',
+            'path': '/account-id/{account-id}',
+            'resource': '/account-id/{account-id}',
+            'headers': {
+                'authorization': 'jwt',
+                'authorizationToken': 'valid_token'
+            },
+            'pathParameters': {
+                'account_number': 'valid_account_number'
+            }
+        }
+
+        context = {}
+        response = your_module.lambda_handler(event, context)
+        self.assertNotIn('Deny', str(response))
+        
+    def test_POST_request_authorized_with_jwt(self):
+        event = {
+            'type': 'REQUEST',
+            'requestContext': {
+                'requestId': '123'
+            },
+            'methodArn': 'arn:aws:execute-api:us-west-2:1234567890:apiId/stage/method/resourcePath',
+            'httpMethod': 'POST',
+            'path': '/create',
+            'resource': '/create',
+            'headers': {
+                'authorization': 'jwt',
+                'authorizationToken': 'valid_token'
+            },
+            'body': json.dumps({
+                'account_number': 'valid_account_number'
+            })
+        }
+
+        context = {}
+        response = your_module.lambda_handler(event, context)
+        self.assertNotIn('Deny', str(response))
+
+    def test_request_authorized_with_secretKey(self):
+        event = {
+            'type': 'REQUEST',
+            'requestContext': {
+                'requestId': '123'
+            },
+            'methodArn': 'arn:aws:execute-api:us-west-2:1234567890:apiId/stage/method/resourcePath',
+            'httpMethod': 'POST',
+            'path': '/path',
+            'resource': '/resource',
+            'headers': {
+                'authorization': 'secretKey'
+            },
+        }
+
+        context = {}
+        response = your_module.lambda_handler(event, context)
+        self.assertNotIn('Deny', str(response))
+
+    def test_request_unauthorized_method(self):
+        event = {
+            'type': 'REQUEST',
+            'requestContext': {
+                'requestId': '123'
+            },
+            'methodArn': 'arn:aws:execute-api:us-west-2:1234567890:apiId/stage/method/resourcePath',
+            'httpMethod': 'PUT',
+            'path': '/path',
+            'resource': '/resource',
+            'headers': {
+                'authorization': 'jwt',
+                'authorizationToken': 'valid_token'
+            }
+        }
+
+        context = {}
+        response = your_module.lambda_handler(event, context)
+        self.assertIn('Deny', str(response))
+
+    def test_request_invalid_type(self):
+        event = {
+            'type': 'INVALID',
+            'requestContext': {
+                'requestId': '123'
+            },
+            'methodArn': 'arn:aws:execute-api:us-west-2:1234567890:apiId/stage/method/resourcePath',
+            'httpMethod': 'GET',
+            'path': '/account-id/{account-id}',
+            'resource': '/account-id/{account-id}',
+            'headers': {
+                'authorization': 'jwt',
+                'authorizationToken': 'valid_token'
+            },
+            'pathParameters': {
+                'account_number': 'valid_account_number'
+            }
+        }
+
+        context = {}
+        response = your_module.lambda_handler(event, context)
+        self.assertIn('Deny', str(response))
+
+if __name__ == '__main__':
+    unittest.main()
+    ```
