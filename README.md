@@ -2096,3 +2096,10 @@ if __name__ == '__main__':
     unittest.main()
 
 ```
+
+
+
+```
+
+Certainly! The provided code is a Lambda function that handles authorization and access control for an API Gateway. It uses an IAM policy to determine whether a request should be allowed or denied based on various conditions, including the user's groups and the requested resource and verb. The function integrates with the Microsoft Graph API to retrieve group information and applies filtering based on specific criteria. It supports both JWT and secret key authorization methods. The function builds the IAM policy and returns it as the response, allowing or denying access to the API based on the defined rules.
+```
