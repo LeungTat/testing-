@@ -2103,3 +2103,46 @@ if __name__ == '__main__':
 
 Certainly! The provided code is a Lambda function that handles authorization and access control for an API Gateway. It uses an IAM policy to determine whether a request should be allowed or denied based on various conditions, including the user's groups and the requested resource and verb. The function integrates with the Microsoft Graph API to retrieve group information and applies filtering based on specific criteria. It supports both JWT and secret key authorization methods. The function builds the IAM policy and returns it as the response, allowing or denying access to the API based on the defined rules.
 ```
+
+
+```
+Sure! The provided code appears to be a Lambda function that handles authorization and access control for an API Gateway. It uses the AWS Identity and Access Management (IAM) policy to determine whether a request should be allowed or denied based on various conditions.
+
+Here's a breakdown of the code:
+
+The code imports necessary modules, including logging, os, re, json, and requests, and sets up logging configurations.
+
+The HttpVerb class defines constants for different HTTP methods (GET, POST, PUT, etc.) that will be used later.
+
+The AuthPolicy class represents an IAM policy and provides methods to build the policy based on allowed and denied methods.
+
+The get_user_transitive_groups function makes a request to the Microsoft Graph API to retrieve the groups that the user is a member of. It requires an access token for authentication and returns the response in JSON format.
+
+The filter_user_groups function takes the response from get_user_transitive_groups and filters the groups based on certain criteria. It returns the filtered groups in JSON format.
+
+The aws_account_filter function takes the filtered groups and extracts AWS account IDs from their display names using regular expressions. It returns a list of unique AWS account IDs.
+
+The lambda_handler function is the entry point for the Lambda function. It receives an event and context object.
+
+The function checks the type of the event. If it's not a "REQUEST" type, it raises an exception indicating unauthorized access.
+
+The function extracts various information from the event, such as the principal ID, AWS account ID, HTTP verb, path, and resource.
+
+It initializes an instance of the AuthPolicy class with the principal ID and AWS account ID.
+
+Depending on the resource, verb, and authorization method (JWT or secret key), the function determines whether to allow or deny access.
+
+For the "/account-id/{account-id}" resource and GET verb with JWT authorization, it retrieves the user's transitive groups, filters them based on list_cidr_target_adlds and list_cidr_user_permission, and allows or denies access accordingly.
+
+For the "/create" resource and POST verb with JWT authorization, it retrieves the user's transitive groups, filters them based on create_cidr_target_adlds_permission, and allows or denies access. It also calls the aws_account_filter function to extract AWS account IDs for further processing.
+
+If the authorization method is "secretKey", it allows access.
+
+If none of the conditions match, it denies access.
+
+The function builds the IAM policy based on the allowed and denied methods and returns the policy as the response.
+
+If there is an exception during the execution, it logs the error, denies all methods, and returns the policy with the denied statement.
+
+Overall, this code provides a mechanism to authorize API requests based on the user's groups and specific conditions. It integrates with Microsoft Graph API to retrieve group information and implements authorization logic using IAM policies.
+```
