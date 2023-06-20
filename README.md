@@ -2258,3 +2258,33 @@ class TestLambdaHandler(unittest.TestCase):
         self.assertEqual(json.loads(response['body']), "Your CIDR IP is 0.0.0.0")
 
 ```
+
+```
+1. Start
+2. Execute lambda_handler
+   - Check if the event type is 'REQUEST', if not raise an exception
+   - Extract necessary information from the event (like principalId, awsAccountId, verb, path, resource, etc.)
+3. Check the authorization method
+   - If 'jwt':
+     - If resource is "/account-id/{account-id}" and verb is "GET":
+       - Extract the account number and access token
+       - Call the get_user_transitive_groups function with the access token
+       - Filter user's groups for list_cidr_target_adlds and account number
+       - If user has permissions for both, allow the method; else deny all methods
+     - If resource is "/create" and verb is "POST":
+       - Extract the account number and access token from the body
+       - Call the get_user_transitive_groups function with the access token
+       - Filter user's groups for create_cidr_target_adlds
+       - Filter AWS account ids from the user's groups
+       - If user has permissions and there are valid AWS account ids, allow the method; else deny all methods
+   - If 'secretKey':
+     - Allow the method
+   - If neither 'jwt' nor 'secretKey':
+     - Deny all methods
+4. Build the policy using policy.build() method
+5. If there's a payload, add it to the context
+6. Return the policy
+7. Exception handling
+   - If an exception occurs at any point, log the error, deny all methods, build and return the policy
+8. End
+```
