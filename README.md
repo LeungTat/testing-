@@ -2146,3 +2146,80 @@ If there is an exception during the execution, it logs the error, denies all met
 
 Overall, this code provides a mechanism to authorize API requests based on the user's groups and specific conditions. It integrates with Microsoft Graph API to retrieve group information and implements authorization logic using IAM policies.
 ```
+
+
+```
+import unittest
+from unittest.mock import patch, MagicMock
+import boto3
+from botocore.stub import Stubber
+import json
+import os
+import your_module  # replace this with the name of your python file
+
+class TestLambdaHandler(unittest.TestCase):
+
+    @patch('your_module.boto3.client')
+    def test_lambda_handler_success(self, mock_boto_client):
+        os.environ['endpoint_cidr_blocks'] = "mock_endpoint"
+        os.environ['cmp_relay_function_arn'] = "mock_arn"
+
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+
+        expected_response = {
+            "result": [
+                {
+                    "ipv4_subnet_address": "0.0.0.0"
+                }
+            ]
+        }
+        
+        # Define the mocked response
+        mock_lambda.invoke.return_value = {
+            'Payload': MagicMock(read=MagicMock(return_value=json.dumps(expected_response).encode('utf-8')))
+        }
+        
+        event = {
+            'pathParmeters': {
+                'id': "1234"
+            }
+        }
+
+        response = your_module.lambda_handler(event, None)
+        self.assertEqual(json.loads(response['body']), "Your CIDR IP is 0.0.0.0")
+    
+    @patch('your_module.boto3.client')
+    def test_lambda_handler_no_cidr(self, mock_boto_client):
+        os.environ['endpoint_cidr_blocks'] = "mock_endpoint"
+        os.environ['cmp_relay_function_arn'] = "mock_arn"
+
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+
+        expected_response = {
+            "result": []
+        }
+        
+        mock_lambda.invoke.return_value = {
+            'Payload': MagicMock(read=MagicMock(return_value=json.dumps(expected_response).encode('utf-8')))
+        }
+        
+        event = {
+            'pathParmeters': {
+                'id': "1234"
+            }
+        }
+
+        response = your_module.lambda_handler(event, None)
+        self.assertEqual(json.loads(response['body']), "This CIDR ID does not exist in CMP")
+    
+    def test_lambda_handler_invalid_trigger(self):
+        response = your_module.lambda_handler({}, None)
+        self.assertEqual(json.loads(response['body']), "Invalid trigger")
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+```
