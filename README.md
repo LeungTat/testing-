@@ -2402,3 +2402,75 @@ class TestLambdaFunction(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 ```
+```
+import unittest
+import json
+from unittest.mock import patch, MagicMock
+import os
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+from your_module import cmp_account_meta_receiver, lambda_handler  # replace 'your_module' with your module name
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("boto3.client")
+    def test_cmp_account_meta_receiver(self, mock_boto_client):
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+
+        # test a successful invocation
+        mock_lambda.invoke.return_value = {
+            "Payload": MagicMock(read=MagicMock(
+                return_value=json.dumps({"result": [{"id": "mock_id", "other": "data"}]}).encode("utf-8")
+            ))
+        }
+        method = "GET"
+        endpoint = "mock_endpoint"
+        account_number = "1234567890"
+        response = cmp_account_meta_receiver(method, endpoint, account_number)
+        self.assertEqual(response, {"id": "mock_id", "other": "data"})
+
+        # test when the lambda function returns no result
+        mock_lambda.invoke.return_value = {
+            "Payload": MagicMock(read=MagicMock(
+                return_value=json.dumps({"result": []}).encode("utf-8")
+            ))
+        }
+        response = cmp_account_meta_receiver(method, endpoint, account_number)
+        self.assertIsNone(response)
+
+        # test when the lambda function raises an exception
+        mock_lambda.invoke.side_effect = BotoCoreError
+        with self.assertRaises(BotoCoreError):
+            response = cmp_account_meta_receiver(method, endpoint, account_number)
+
+    @patch("your_module.cmp_account_meta_receiver")  # replace 'your_module' with your module name
+    def test_lambda_handler(self, mock_cmp_account_meta_receiver):
+        event = {
+            "pathParameters": {
+                "account_number": "1234567890"
+            }
+        }
+        context = {}
+
+        # case when cmp_account_meta_receiver returns a dictionary
+        mock_cmp_account_meta_receiver.return_value = {"id": "mock_id", "other": "data"}
+        response = lambda_handler(event, context)
+        self.assertEqual(json.loads(response["body"]), "mock_id")
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(response["headers"]["Content-Type"], "application/json")
+        self.assertFalse(response["isBase64Encoded"])
+
+        # case when cmp_account_meta_receiver returns None
+        mock_cmp_account_meta_receiver.return_value = None
+        response = lambda_handler(event, context)
+        self.assertEqual(response["body"], "\"This Account does not exist in CMP\"")
+
+        # case when pathParameters is not given in the event
+        event = {}
+        response = lambda_handler(event, context)
+        self.assertEqual(response["body"], "\"Invalid trigger\"")
+
+if __name__ == "__main__":
+    unittest.main()
+```
