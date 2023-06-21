@@ -2474,3 +2474,37 @@ class TestLambdaFunction(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 ```
+```
+import unittest
+from unittest.mock import patch, MagicMock
+from your_module import lambda_handler  # replace 'your_module' with your module name
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("your_module.cmp_account_meta_receiver")  # replace 'your_module' with your module name
+    def test_lambda_handler(self, mock_cmp_account_meta_receiver):
+        event = {
+            "pathParameters": {
+                "account_number": "1234567890"
+            }
+        }
+        context = MagicMock()  # Use MagicMock instead of a plain dictionary
+
+        # case when cmp_account_meta_receiver returns a dictionary
+        mock_cmp_account_meta_receiver.return_value = {"id": "mock_id", "other": "data"}
+        response = lambda_handler(event, context)
+        self.assertEqual(json.loads(response["body"]), "mock_id")
+        
+        # case when cmp_account_meta_receiver returns None
+        mock_cmp_account_meta_receiver.return_value = None
+        response = lambda_handler(event, context)
+        self.assertEqual(response["body"], "\"This Account does not exist in CMP\"")
+        
+        # case when pathParameters is not given in the event
+        event = {}
+        response = lambda_handler(event, context)
+        self.assertEqual(response["body"], "\"Invalid trigger\"")
+
+if __name__ == '__main__':
+    unittest.main()
+```
