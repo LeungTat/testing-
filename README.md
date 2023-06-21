@@ -2288,3 +2288,63 @@ class TestLambdaHandler(unittest.TestCase):
    - If an exception occurs at any point, log the error, deny all methods, build and return the policy
 8. End
 ```
+
+
+
+```
+import unittest
+import json
+from unittest.mock import patch, MagicMock
+import os
+import boto3
+from your_module import account_number_dispatcher, cmp_cidr_receiver, lambda_hander  # replace 'your_module' with the actual name of your module
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("boto3.client")
+    def test_account_number_dispatcher(self, mock_boto_client):
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+        mock_lambda.invoke.return_value = {
+            "Payload": MagicMock(read=MagicMock(
+                return_value=json.dumps({"body": "mock_response"}).encode("utf-8")
+            ))
+        }
+        account_number = "1234567890"
+        response = account_number_dispatcher(account_number)
+        self.assertEqual(response, "mock_response")
+
+    @patch("boto3.client")
+    def test_cmp_cidr_receiver(self, mock_boto_client):
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+        mock_lambda.invoke.return_value = {
+            "Payload": MagicMock(read=MagicMock(
+                return_value=json.dumps({"result": [{"create_by": "mock", "connected": "mock", "account": "mock", "other": "data"}]}).encode("utf-8")
+            ))
+        }
+        method = "GET"
+        endpoint = "mock_endpoint"
+        id = "mock_id"
+        entries = {"create_by", "connected", "account"}
+        response = cmp_cidr_receiver(method, endpoint, id, entries)
+        self.assertEqual(response, {"other": "data"})
+    
+    @patch("your_module.account_number_dispatcher")  # replace 'your_module' with the actual name of your module
+    @patch("your_module.cmp_cidr_receiver")  # replace 'your_module' with the actual name of your module
+    def test_lambda_handler(self, mock_cmp_cidr_receiver, mock_account_number_dispatcher):
+        event = {
+            "pathParameters": {
+                "account_number": "1234567890"
+            }
+        }
+        context = {}
+        mock_account_number_dispatcher.return_value = "mock_account_id"
+        mock_cmp_cidr_receiver.return_value = {"other": "data"}
+        response = lambda_hander(event, context)
+        self.assertEqual(json.loads(response["body"]), {"other": "data"})
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
