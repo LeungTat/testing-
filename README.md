@@ -2508,3 +2508,58 @@ class TestLambdaFunction(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+
+```
+import unittest
+from unittest.mock import patch, MagicMock
+from your_module import lambda_handler  # replace 'your_module' with your actual module name
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("your_module.cmp_cidr_creator")
+    @patch("your_module.account_number_dispatcher")
+    @patch("boto3.client")
+    def test_lambda_handler(self, mock_boto_client, mock_account_number_dispatcher, mock_cmp_cidr_creator):
+        # Create a MagicMock for the 'lambda' client
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+
+        event = {
+            "body": json.dumps({"account_number": "1234567890", "region": "us-east-1", "ipv4_subnet_mask": 25}),
+            "requestContext": {
+                "authorizer": {
+                    "payload": ["1234567890"],
+                    "administrator_cidr_target_adlds_permission": False
+                }
+            }
+        }
+
+        context = MagicMock()  # Use MagicMock instead of a plain dictionary
+
+        # case when account_number_dispatcher and cmp_cidr_creator returns a valid result
+        mock_account_number_dispatcher.return_value = "mock_id"
+        mock_cmp_cidr_creator.return_value = {"ipv4_subnet_address": "192.168.0.0", "created": "2023-06-30"}
+
+        response = lambda_handler(event, context)
+        expected_response = "This CIDR range 192.168.0.0 is assigned to 1234567890 in us-east-1 at 2023-06-30"
+        self.assertEqual(json.loads(response["body"]), expected_response)
+        
+        # case when input validation fails
+        event["body"] = json.dumps({"account_number": "1234567890", "region": "invalid-region", "ipv4_subnet_mask": 25})
+        response = lambda_handler(event, context)
+        self.assertEqual(json.loads(response["body"]), "Not all required parameters were provided or there was bad data in the request.")
+
+        # case when user is not allowed to perform action
+        event["requestContext"]["authorizer"]["payload"] = ["0987654321"]
+        response = lambda_handler(event, context)
+        self.assertEqual(json.loads(response["body"]), "You are not allowed perform this action")
+
+        # case when body is not given in the event
+        event = {"requestContext": {"authorizer": {"payload": ["1234567890"]}}}
+        response = lambda_handler(event, context)
+        self.assertEqual(json.loads(response["body"]), "Invalid trigger")
+
+if __name__ == '__main__':
+    unittest.main()
+
+```
