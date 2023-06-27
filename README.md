@@ -2929,3 +2929,28 @@ while url:
     all_groups.extend(data['value'])
     url = data.get('@odata.nextLink', None)
 ```
+
+```
+def get_user_transitive_groups(access_token):
+    url = "https://graph.microsoft.com/v1.0/me/transitiveMemberOf/microsoft.graph.group"
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    all_groups = []
+    while url:
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            all_groups.extend(data['value'])
+            url = data.get('@odata.nextLink', None)
+        elif response.status_code == 401:
+            raise Exception("Unauthorized: Invalid or expired access token")
+        elif response.status_code == 403:
+            raise Exception("Forbidden: Insufficient permissions to access the resource")
+        else:
+            raise Exception(f"Error: {response.status_code} - {response.text}")
+
+    return all_groups
+```
