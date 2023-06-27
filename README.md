@@ -2848,3 +2848,70 @@ class TestLambdaHandler(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+
+```
+import unittest
+from unittest.mock import patch, Mock
+import json
+import your_module  # replace with your actual module name
+
+class TestLambdaHandler(unittest.TestCase):
+    
+    @patch('your_module.boto3.client')
+    def test_account_number_dispatcher(self, mock_boto_client):
+        mock_response = Mock()
+        mock_response.read.return_value = json.dumps({"body": "body_content"}).encode()
+        mock_boto_client.return_value.invoke.return_value = {"Payload": mock_response}
+        response = your_module.account_number_dispatcher('12345')
+        self.assertEqual(response, json.loads('{"body": "body_content"}'))
+
+    def test_input_validation(self):
+        self.assertTrue(your_module.input_validation("eu-west-1", 25))
+        self.assertFalse(your_module.input_validation("eu-west-1", 23))
+        self.assertFalse(your_module.input_validation("invalid-region", 25))
+        self.assertFalse(your_module.input_validation("eu-west-1", 27))
+
+    @patch('your_module.boto3.client')
+    def test_cmp_cidr_creator(self, mock_boto_client):
+        mock_response = Mock()
+        mock_response.read.return_value = json.dumps({"ipv4_subnet_address": "192.168.0.0", "created": "2023-06-27"}).encode()
+        mock_boto_client.return_value.invoke.return_value = {"Payload": mock_response}
+        response = your_module.cmp_cidr_creator("POST", "endpoint", "account_id", "region", "ipv4_subnet_mask")
+        self.assertEqual(response, {"ipv4_subnet_address": "192.168.0.0", "created": "2023-06-27"})
+
+    @patch('your_module.boto3.client')
+    def test_process_request(self, mock_boto_client):
+        mock_response = Mock()
+        mock_response.read.return_value = json.dumps({"id": "id_content", "is_live": "0"}).encode()
+        mock_boto_client.return_value.invoke.return_value = {"Payload": mock_response}
+
+        account_number = '12345'
+        body = {"region": "eu-west-1", "ipv4_subnet_mask": 25, "reference": "test_ref", "comments": "test_comments"}
+        context = {}
+
+        with patch('your_module.input_validation', return_value=True), patch('your_module.cmp_cidr_creator', return_value={"ipv4_subnet_address": "192.168.0.0", "created": "2023-06-27"}):
+            response = your_module.process_request(account_number, body, context)
+            self.assertEqual(response, "This CIDR range 192.168.0.0 is assigned to 12345 in eu-west-1 at 2023-06-27")
+
+    @patch('your_module.boto3.client')
+    @patch('your_module.process_request')
+    def test_lambda_handler(self, mock_process_request, mock_boto_client):
+        mock_process_request.return_value = "Processing successful"
+        event = {
+            "body": json.dumps({"account_number": "12345", "region": "eu-west-1", "ipv4_subnet_mask": 25, "reference": "test_ref", "comments": "test_comments"}),
+            "requestContext": {"authorizer": {"payload": ["12345"], "administrator_cidr_target_adlds_permission": 'true'}}
+        }
+        context = {}
+        response = your_module.lambda_handler(event, context)
+        expected_response = {
+            "isBase64Encoded": False,
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps("Processing successful")
+        }
+        self.assertEqual(response, expected_response)
+
+
+if __name__ == '__main__':
+    unittest.main()
+```
