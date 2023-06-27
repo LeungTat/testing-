@@ -2684,3 +2684,117 @@ def lambda_handler(event, context):
     }     
 
 ```
+
+```
+import json
+import os
+import boto3
+import logging
+
+ENDPOINT_CIDR = os.environ.get("endpoint_cidr_blocks")
+CMP_RELAY_FUNCTION_ARN = os.environ.get("cmp_relay_function_arn")
+ACCOUNT_DISPATCH_FUNCTION_ARN = os.environ.get("account_dispatch_function_arn")
+
+def account_number_dispatcher(account_number):
+    resp_stream = boto3.client('lambda').invoke(
+        FunctionName=ACCOUNT_DISPATCH_FUNCTION_ARN,
+        InvocationType='RequestResponse',
+        LogType='None',
+        Payload=json.dumps({"pathParameters":{
+            "account_number":account_number
+        }
+        }), 
+    )['Payload']
+    resp = json.loads(resp_stream.read().decode("utf-8"))
+    return resp
+
+def input_validation(region, ipv4_subnet_mask):
+    if not (region and ipv4_subnet_mask):
+        logging.error("An Unspecified error occurred")
+        return False
+    
+    allowed_regions = [
+        "eu-west-1",
+        "eu-west-2",
+        "us-east-1",
+        "us-east-2",
+        "ap-east-1",
+        "ap-southeast-1",
+        "ap-south-1",
+    ]
+
+    if region not in allowed_regions:
+        print("This is not allowed AWS region in HSBC - stopping")
+        return False
+    if ipv4_subnet_mask < 24:
+        print("Request subnet mask is larger than 24, please get approval from architect")
+        return False
+    elif ipv4_subnet_mask > 26:
+        print("Request subnet mask is out of range")
+        return False 
+    print("This is allowed AWS region in HSBC - proceeding")
+    return True
+
+def cmp_cidr_creator(method, endpoint, account_id, region, ipv4_subnet_mask, reference=None, comments=None):
+    resp_stream =boto3.client('lambda').invoke(
+        FunctionName=CMP_RELAY_FUNCTION_ARN,
+        InvocationType='RequestResponse',
+        LogType='None',
+        Payload=json.dumps({
+            "method": method,
+            "endpoint": endpoint,
+            "body": {
+                "account": account_id,
+                "region": region,
+                "ipv4_subnet_mask": ipv4_subnet_mask,
+                "reference": reference,
+                "comments": comments
+            }
+        })
+    )['Payload']
+    resp = json.load(resp_stream)
+    return resp
+
+def process_request(account_number, body, context):
+    account_data = account_number_dispatcher(account_number)
+    account_id = account_data.get('id')
+    is_live = account_data.get('is_live')
+    if is_live is "1":
+        return "This Account has already go live , it does not allow to preform action"
+    region = body.get("region")
+    ipv4_subnet_mask = body.get("ipv4_subnet_mask")
+    reference = body.get("reference")
+    comments = body.get("comments")
+    if input_validation(region, ipv4_subnet_mask) is True:
+        res = cmp_cidr_creator("POST", ENDPOINT_CIDR, account_id, region, ipv4_subnet_mask, reference, comments)
+        if res is None:
+            return "This is not valid request"
+        else:
+            return "This CIDR range {} is assigned to {} in {} at {}".format(
+                res['ipv4_subnet_address'], account_number, region, res['created'])
+    else:
+        return "Not all required parameters were provided or there was bad data in the request."
+
+def lambda_handler(event, context):
+    res = None
+    if event.get("body") is not None:
+        body = json.loads(event.get("body"))
+        account_number = body.get("account_number")
+        account_list = event['requestContext'].get('authorizer','{}').get('payload','[]')
+        adminstrator_cidr_target_adlds_permission = event['requestContext'].get(
+            'authorizer', '{}').get('administrator_cidr_target_adlds_permission')
+        if str(account_number) not in account_list and adminstrator_cidr_target_adlds_permission != true:
+            res = "You are not allowed perform this action"
+        else:
+            res = process_request(account_number, body, context)
+    else:
+        res = "Invalid trigger"
+
+    return {
+        "isBase64Encoded": False,
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(res)
+    }     
+
+```
