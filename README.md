@@ -2915,3 +2915,17 @@ class TestLambdaHandler(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+
+```
+import requests
+
+url = "https://graph.microsoft.com/v1.0/me/transitiveMemberOf/microsoft.graph.group"
+headers = {"Authorization": "Bearer YOUR_ACCESS_TOKEN"}
+
+all_groups = []
+while url:
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    all_groups.extend(data['value'])
+    url = data.get('@odata.nextLink', None)
+```
