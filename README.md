@@ -2970,3 +2970,81 @@ The function responds with a JSON object containing the response from the Micros
 
 Note: This function is using the OAuth 2.0 Resource Owner Password Credentials Grant, which is not recommended for new applications because it includes the user's password in the request. New applications should use other OAuth 2.0 flows that don't require the app to handle the user's password.
 ```
+
+
+```
+import boto3
+import json
+import logging
+import requests
+import os
+from botocore.exceptions import ClientError
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+secret_key_name = os.environ['SECRET_KEY_NAME']
+client_id = os.environ['CLIENT_ID']
+aws_region = os.environ['AWS_REGION']
+
+def get_secret(secret_name):
+    session = boto3.session.Session()
+    client = session.client(service_name='secretsmanager', region_name=aws_region)
+
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        logger.error("Client error retrieving secret {}, exception {}".format(secret_name, e.response['Error']['Code']))
+        raise e
+    else:
+        if 'SecretString' in get_secret_value_response:
+            secret = get_secret_value_response['SecretString']
+            if secret: 
+                return secret
+            else:
+                raise ValueError(f"Retrieved secret is empty for {secret_name}")
+        else:
+            raise ValueError('Retrieved value is not a valid JSON string')
+
+def build_response(status_code, body, message=None):
+    headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': 'true',
+        'Content-Type': 'application/json',
+    }
+    response = {
+        'statusCode': status_code,
+        'body': json.dumps(body),
+        'headers': headers,
+    }
+    if message is not None:
+        response['body'] = json.dumps({"Message": message})
+    return response
+
+def lambda_handler(event, context):
+    try:
+        body = json.loads(event['body'])
+        username = body.get('username')
+        password = body.get('password')
+        if not username or not password:
+            return build_response(400, {}, "Missing 'username' or 'password'")
+        client_secret = get_secret(secret_key_name)
+        token_url = f"https://login.microsoftonline.com/organization/oauth2/v2.0/token"
+        data = {
+            'grant_type': 'password',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'username': username,
+            'password': password,
+            'scope': "openid"
+        }
+        response = requests.post(token_url, data=data)
+        response.raise_for_status()
+        return build_response(200, response.json())
+    except requests.exceptions.RequestException as e:
+        logger.error('Request error: {}'.format(str(e)))
+        return build_response(500, {}, "Failed to connect to Microsoft Online")
+    except Exception as e:
+        logger.error('Unknown error: {}'.format(str(e)))
+        return build_response(500, {}, "Internal error")
+```
