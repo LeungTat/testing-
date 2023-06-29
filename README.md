@@ -3048,3 +3048,43 @@ def lambda_handler(event, context):
         logger.error('Unknown error: {}'.format(str(e)))
         return build_response(500, {}, "Internal error")
 ```
+```
+def lambda_handler(event, context):
+    try:
+        body = json.loads(event['body'])
+        username = body.get('username')
+        password = body.get('password')
+
+        if not username or not password:
+            return build_response(400, {}, "Missing 'username' or 'password'")
+        client_secret = get_secret(secret_key_name)
+        
+        token_url = f"https://login.microsoftonline.com/organization/oauth2/v2.0/token"
+        data = {
+            'grant_type': 'password',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'username': username,
+            'password': password,
+            'scope': "openid"
+        }
+        response = requests.post(token_url, data=data)
+        
+        # if status_code is not 2xx, treat it as error
+        if response.status_code < 200 or response.status_code >= 300:
+            logger.error('Unexpected response from Microsoft Online: {}'.format(response.status_code))
+            # if it is a client error (4xx), return status code 400
+            if 400 <= response.status_code < 500:
+                return build_response(400, {}, "Invalid username or password")
+            # else if it is a server error (5xx), return status code 500
+            else:
+                return build_response(500, {}, "Microsoft Online server error")
+                
+        return build_response(200, response.json())
+    except requests.exceptions.RequestException as e:
+        logger.error('Request error: {}'.format(str(e)))
+        return build_response(500, {}, "Failed to connect to Microsoft Online")
+    except Exception as e:
+        logger.error('Unknown error: {}'.format(str(e)))
+        return build_response(500, {}, "Internal error")
+```
