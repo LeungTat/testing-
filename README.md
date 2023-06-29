@@ -2957,3 +2957,16 @@ def get_user_transitive_groups(access_token):
 ```
 This Python code is an AWS Lambda function that uses the AWS Secrets Manager to securely store and retrieve secrets such as credentials for the Microsoft Online OAuth 2.0 API. The lambda_handler function accepts a request with a username and password, retrieves the stored secret (representing the client secret) from AWS Secrets Manager, and then uses these to make an authentication request to Microsoft's OAuth API to get a token. The result (an OAuth token or an error) is then returned in a structured response format.
 ```
+```
+This Python script is an AWS Lambda function that's designed to authenticate a user with Microsoft's Azure AD (Active Directory) OAuth service. Here's a breakdown of what it does:
+
+get_secret(secret_name): This function retrieves a secret (in this case, client_secret) from AWS Secrets Manager. Secrets Manager is a service that helps you protect access to your applications, services, and IT resources. This function takes a secret's name as an input and returns the secret's value.
+
+build_response(status_code, body, message=None): This function is a helper function that constructs an HTTP response with a specific status code, body, and an optional message. The response is in JSON format.
+
+lambda_handler(event, context): This is the main function that AWS Lambda calls when the Lambda function is invoked. It attempts to authenticate a user with the Microsoft OAuth service by making a POST request to the token URL. The POST request includes the client ID, the client secret retrieved from AWS Secrets Manager, and the username and password from the event that triggered the function.
+
+The function responds with a JSON object containing the response from the Microsoft OAuth service (which includes an access token if the authentication was successful) or an error message. The status code of the response is 200 if the authentication was successful, and 500 if an error occurred.
+
+Note: This function is using the OAuth 2.0 Resource Owner Password Credentials Grant, which is not recommended for new applications because it includes the user's password in the request. New applications should use other OAuth 2.0 flows that don't require the app to handle the user's password.
+```
