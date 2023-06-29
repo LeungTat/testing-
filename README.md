@@ -3174,3 +3174,73 @@ def lambda_handler(event, context):
         logger.error('Unknown error: {}'.format(str(e)))
         return build_response(500, {}, "Internal error")
 ```
+```
+openapi: 3.0.1
+info:
+  title: Lambda Function API
+  description: A simple API for a Lambda function
+  version: 1.0.0
+servers:
+  - url: https://<API-GATEWAY-URL>/
+paths:
+  /token:
+    post:
+      summary: Retrieve a token
+      operationId: getToken
+      requestBody:
+        description: The user's credentials
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                  expires_in:
+                    type: integer
+                  scope:
+                    type: string
+                  id_token:
+                    type: string
+        '400':
+          description: Invalid username or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Microsoft Online server error or internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    Credentials:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+    Error:
+      type: object
+      properties:
+        Message:
+          type: string
+      required:
+        - Message
+```
