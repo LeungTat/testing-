@@ -1,4 +1,4 @@
-```
+
 # testing-
 import os
 import json
@@ -2953,4 +2953,7 @@ def get_user_transitive_groups(access_token):
             raise Exception(f"Error: {response.status_code} - {response.text}")
 
     return all_groups
+```
+```
+This Python code is an AWS Lambda function that uses the AWS Secrets Manager to securely store and retrieve secrets such as credentials for the Microsoft Online OAuth 2.0 API. The lambda_handler function accepts a request with a username and password, retrieves the stored secret (representing the client secret) from AWS Secrets Manager, and then uses these to make an authentication request to Microsoft's OAuth API to get a token. The result (an OAuth token or an error) is then returned in a structured response format.
 ```
