@@ -3647,3 +3647,79 @@ class TestAuthPolicyHelpers(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+
+```
+AWS Authorizer
+Overview
+AWS Authorizer is a Python library that assists with the creation of AWS IAM policies and facilitates user authentication and authorization against an Active Directory (AD).
+
+Installation
+The AWS Authorizer library can be installed via pip:
+
+bash
+Copy code
+pip install aws_authorizer
+Usage
+Here is a sample usage of the AWS Authorizer library:
+
+python
+Copy code
+from aws_authorizer import auth_policy, utils
+
+# Create a new authorization policy
+principal = "User"
+awsAccountId = "123456789012"
+policy = auth_policy.AuthPolicy(principal, awsAccountId)
+
+# Allow a GET method on the "/pets" resource
+policy.allowMethod(auth_policy.HttpVerb.GET, "/pets")
+
+# Build the policy
+result = policy.build()
+
+# Fetch user's transitive groups from AD
+access_token = "access_token_here"
+user_groups = utils.get_user_transitive_groups(access_token)
+
+# Filter the user's groups based on the target account
+target_account = "target-account"
+filtered_groups = utils.filter_user_groups(user_groups, target_account)
+
+# Extract AWS account IDs from the user's groups
+aws_account_ids = utils.aws_account_filter(user_groups)
+API Reference
+class auth_policy.AuthPolicy(principal: str, awsAccountId: str)
+Creates a new authorization policy.
+
+Parameters:
+
+principal: A unique identifier for the end user.
+awsAccountId: The AWS account id for which the policy will be generated.
+class auth_policy.HttpVerb
+This class encapsulates HTTP verbs allowed by AWS. It includes GET, POST, PUT, PATCH, HEAD, DELETE, OPTIONS, and ALL.
+
+utils.get_user_transitive_groups(access_token: str) -> dict
+Fetches the transitive groups of a user from the AD.
+
+Parameters:
+
+access_token: The access token used to authenticate against the AD.
+utils.filter_user_groups(groups: list, targetAccount: str) -> bool
+Filters the user's groups based on the target account.
+
+Parameters:
+
+groups: A list of groups to which the user belongs.
+targetAccount: The target account against which to filter the user's groups.
+utils.aws_account_filter(groups: list) -> list
+Extracts the AWS account IDs from the user's groups.
+
+Parameters:
+
+groups: A list of groups to which the user belongs.
+Contributing
+Contributions to AWS Authorizer are welcome! To contribute, please fork the repository and submit a pull request. Make sure to write tests for your feature or bug fix, and that all tests pass before submitting the pull request.
+
+License
+AWS Authorizer is released under the MIT License.
+```
