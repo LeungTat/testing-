@@ -3809,3 +3809,55 @@ class ADUtils:
         """Function to filter AWS account IDs from user groups."""
         # ... rest of your code remains unchanged ...
 ```
+
+```
+# Authorizer Library
+
+This is a Python library to assist with the management of AWS Auth policies and other related functions.
+
+## Classes
+
+### 1. AuthPolicy
+
+This class is used to manage AWS Auth policies. 
+
+#### Attributes:
+
+- `awsAccountId` (str): AWS Account ID.
+- `principalId` (str): Principal ID.
+- `version` (str): Policy version. Default is '2012-10-17'.
+- `pathRegex` (str): Path regex. Default is '^[\/.a-zA-Z0-9-\*:]+$'.
+- `allowMethods` (List[Dict[str, Union[str, List[Dict[str, str]]]]]): List of allowed methods.
+- `denyMethods` (List[Dict[str, Union[str, List[Dict[str, str]]]]]): List of denied methods.
+- `restApiId` (str): REST API ID. Default is '*'.
+- `region` (str): Region. Default is '*'.
+- `stage` (str): Stage. Default is '*'.
+
+#### Methods:
+
+- `build()` - Build the policy and return it.
+- `_addMethod()` - Add a method to the internal lists of allowed or denied methods.
+- `allowAllMethods()` - Allows all methods.
+- `denyAllMethods()` - Denies all methods.
+- `allowMethod()` - Allows a specific method.
+- `denyMethod()` - Denies a specific method.
+
+### 2. HttpVerb
+
+This class contains HTTP Verbs constants. 
+
+### 3. ADUtils
+
+This class contains several utility methods for dealing with Azure Active Directory. 
+
+#### Methods:
+
+- `get_user_transitive_groups()` - Returns all the transitive groups a user belongs to.
+- `filter_user_groups()` - Filters user groups based on the target account.
+- `aws_account_filter()` - Filters the AWS account.
+
+## Installation
+
+```bash
+pip install authorizer
+```
