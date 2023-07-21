@@ -3861,3 +3861,19 @@ This class contains several utility methods for dealing with Azure Active Direct
 ```bash
 pip install authorizer
 ```
+
+```
+from authorizer import AuthPolicy, HttpVerb, ADUtils
+
+# Create a new AuthPolicy instance
+policy = AuthPolicy(principal='example', awsAccountId='1234567890')
+
+# Add methods to the policy
+policy.allowMethod(HttpVerb.GET, '/users/*')
+
+# Build the policy
+result = policy.build()
+
+# Print the result
+print(result)
+```
