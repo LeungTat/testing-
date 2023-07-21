@@ -3723,3 +3723,89 @@ Contributions to AWS Authorizer are welcome! To contribute, please fork the repo
 License
 AWS Authorizer is released under the MIT License.
 ```
+
+
+```
+import re
+from typing import List, Optional, Dict, Union
+
+class HttpVerb:
+    GET     = "GET"
+    POST    = "POST"
+    PUT     = "PUT"
+    PATCH   = "PATCH"
+    HEAD    = "HEAD"
+    DELETE  = "DELETE"
+    OPTIONS = "OPTIONS"
+    ALL     = "*"
+
+class AuthPolicy:
+    awsAccountId: str
+    principalId: str
+    version: str = "2012-10-17"
+    pathRegex: str = "^[\/.a-zA-Z0-9-\*:]+$"
+    allowMethods: List[Dict[str, Union[str, List[Dict[str, str]]]]]
+    denyMethods: List[Dict[str, Union[str, List[Dict[str, str]]]]]
+    restApiId: str = "*"
+    region: str = "*"
+    stage: str = "*"
+
+    def __init__(self, principal: str, awsAccountId: str):
+        self.awsAccountId = awsAccountId
+        self.principalId = principal
+        self.allowMethods = []
+        self.denyMethods = []
+
+    # ... Rest of your code remains unchanged ...
+
+    def _addMethod(self, effect: str, verb: str, resource: str, conditions: List[Dict[str, str]]) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def _getEmptyStatement(self, effect: str) -> Dict[str, Union[str, List]]:
+        # ... Rest of your code remains unchanged ...
+
+    def _getStatementForEffect(self, effect: str, methods: List[Dict[str, Union[str, List[Dict[str, str]]]]]) -> List[Dict[str, Union[str, List]]]:
+        # ... Rest of your code remains unchanged ...
+
+    def allowAllMethods(self) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def denyAllMethods(self) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def allowMethod(self, verb: str, resource: str) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def denyMethod(self, verb: str, resource: str) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def allowMethodWithConditions(self, verb: str, resource: str, conditions: List[Dict[str, str]]) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def denyMethodWithConditions(self, verb: str, resource: str, conditions: List[Dict[str, str]]) -> None:
+        # ... Rest of your code remains unchanged ...
+
+    def build(self) -> Dict[str, Union[str, Dict[str, Union[str, List[Dict[str, Union[str, List]]]]]]]:
+        # ... Rest of your code remains unchanged ...
+
+```
+```
+from typing import Dict, List
+
+class ADUtils:
+
+    @staticmethod
+    def get_user_transitive_groups(access_token: str) -> Dict[str, List[Dict]]:
+        """Function to get user transitive groups from Active Directory."""
+        # ... rest of your code remains unchanged ...
+
+    @staticmethod
+    def filter_user_groups(groups: Dict[str, List[Dict]], targetAccount: str) -> bool:
+        """Function to filter user groups based on the target account."""
+        # ... rest of your code remains unchanged ...
+
+    @staticmethod
+    def aws_account_filter(groups: Dict[str, List[Dict]]) -> List[str]:
+        """Function to filter AWS account IDs from user groups."""
+        # ... rest of your code remains unchanged ...
+```
