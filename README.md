@@ -3877,3 +3877,44 @@ result = policy.build()
 # Print the result
 print(result)
 ```
+```
+from typing import Dict, Any, Tuple
+from authorizer import AuthPolicy
+
+class RequestHandler:
+
+    def __init__(self, event: Dict[str, Any]):
+        self.event = event
+        self.auth_method: str = None
+        self.policy: AuthPolicy = None
+
+    def _validate_event_type(self) -> None:
+        if self.event['type'] != 'REQUEST':
+            raise Exception('Unauthorized')
+
+    def _prepare_auth_method(self) -> None:
+        authorization_header = {
+            k.lower(): v for k, v in self.event['headers'].items() if k.lower() == 'authorization'}
+        self.auth_method = authorization_header.get('authorization')
+
+        if not self.auth_method:
+            raise Exception('Unauthorized - No Authorization header provided')
+
+    def _prepare_policy(self) -> None:
+        principalId: str = self.event['requestContext']['requestId']
+        tmp: List[str] = self.event['methodArn'].split(':')
+        apiGatewayArnTmp: List[str] = tmp[5].split('/')
+        awsAccountId: str = tmp[4]
+
+        self.policy = AuthPolicy(principalId, awsAccountId)
+        self.policy.restApiId = apiGatewayArnTmp[0]
+        self.policy.region = tmp[3]
+        self.policy.stage = apiGatewayArnTmp[1]
+
+    def handle(self) -> Tuple[AuthPolicy, str]:
+        self._validate_event_type()
+        self._prepare_auth_method()
+        self._prepare_policy()
+
+        return self.policy, self.auth_method
+```
