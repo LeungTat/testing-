@@ -4061,3 +4061,16 @@ arduino
 Copy code
 Please modify this template to fit your specific needs and circumstances.
 ```
+```
+from typing import Dict, Any
+
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    try:
+        handler = RequestHandler(event)
+        return handler.handle_request()
+    except Exception as e:
+        logger.error(e)
+        handler.policy.denyAllMethods()
+        authResponse = handler.policy.build()
+        return authResponse
+```
