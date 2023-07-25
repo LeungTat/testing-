@@ -3918,3 +3918,69 @@ class RequestHandler:
 
         return self.policy, self.auth_method
 ```
+```
+from typing import Dict, Any, Union
+from authorizer import AuthPolicy, ADUtils
+import json
+
+class RequestHandler:
+
+    def __init__(self, event: Dict[str, Any]):
+        self.event = event
+        self.auth_method: str = None
+        self.policy: AuthPolicy = None
+        self.payload: Union[str, None] = None
+        self.ad_utils = ADUtils()
+
+    # ... other methods remain unchanged ...
+
+    def _handle_account_id_resource(self):
+        verb = self.event["httpMethod"]
+        resource = self.event["resource"]
+        account_number = self.event['pathParameters']['account_number']
+        access_token = self.event['headers']['authorizationToken']
+        user_transitive_groups = self.ad_utils.get_user_transitive_groups(access_token)
+        list_cidr_target_adlds_permission = self.ad_utils.filter_user_groups(user_transitive_groups, list_cidr_target_adlds)
+        list_cidr_user_permission = self.ad_utils.filter_user_groups(user_transitive_groups, account_number) 
+        if list_cidr_target_adlds_permission and list_cidr_user_permission:
+            self.policy.allowMethod(verb, resource) 
+        else:
+            self.policy.denyAllMethods()
+
+    def _handle_create_resource(self):
+        verb = self.event["httpMethod"]
+        path = self.event["path"]
+        body = json.loads(self.event.get('body', '{}'))
+        account_number = body.get('account_number')
+        access_token = self.event['headers']['authorizationToken']
+        user_transitive_groups = self.ad_utils.get_user_transitive_groups(access_token)
+        create_cidr_target_adlds_permission = self.ad_utils.filter_user_groups(user_transitive_groups, create_cidr_target_adlds)
+        self.payload = self.ad_utils.aws_account_filter(user_transitive_groups)
+        if self.payload and create_cidr_target_adlds_permission:
+            self.policy.allowMethod(verb, path)
+        else:
+            self.policy.denyAllMethods()
+
+    def handle_request(self) -> Dict[str, Any]:
+        self._validate_event_type()
+        self._prepare_auth_method()
+        self._prepare_policy()
+
+        resource = self.event["resource"]
+        if resource == "/account-id/{account-id}" and self.auth_method == "jwt":
+            self._handle_account_id_resource()
+        elif resource == "/create" and self.auth_method == "jwt":
+            self._handle_create_resource()
+        elif self.auth_method == "secretKey":
+            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+        
+        authResponse = self.policy.build()
+        if self.payload:
+            context = {
+                'payload': json.dumps(self.payload)
+            }
+            authResponse['context'] = context
+        return authResponse
+```
