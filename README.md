@@ -4232,3 +4232,16 @@ class EventProcessor:
     def get_auth_method(self) -> str:
         return self.auth_method
 ```
+```
+from typing import Dict, Any, Optional
+from aws_event_processor import EventProcessor
+
+def lambda_handler(event: Dict[str, Any], context: Optional[Any]) -> Dict[str, Any]:
+    processor: EventProcessor = EventProcessor(event)
+    policy: AuthPolicy = processor.get_policy()
+    verb: str = processor.get_verb()
+    path: str = processor.get_path()
+    resource: str = processor.get_resource()
+    auth_method: str = processor.get_auth_method()
+    # ... remaining lambda function code ...
+```
