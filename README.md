@@ -4122,3 +4122,12 @@ class EventProcessor:
     def get_auth_method(self) -> str:
         return self.auth_method
 ```
+
+def lambda_handler(event, context):
+    processor = EventProcessor(event)
+    policy = processor.get_policy()
+    verb = processor.get_verb()
+    path = processor.get_path()
+    resource = processor.get_resource()
+    auth_method = processor.get_auth_method()
+    ```
