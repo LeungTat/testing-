@@ -4184,3 +4184,51 @@ class RequestHandler:
             authResponse['context'] = context
         return authResponse
         ```
+```
+from typing import Dict, Any
+from authorizer import AuthPolicy
+
+class EventProcessor:
+
+    def __init__(self, event: Dict[str, Any]) -> None:
+        if event['type'] != 'REQUEST':
+            raise Exception('Unauthorized')
+
+        principalId: str = event['requestContext']['requestId']
+        tmp: List[str] = event['methodArn'].split(':')
+        apiGatewayArnTmp: List[str] = tmp[5].split('/')
+        awsAccountId: str = tmp[4]
+        verb: str = event["httpMethod"]
+        path: str = event["path"]
+        resource: str = event["resource"]
+        
+        policy: AuthPolicy = AuthPolicy(principalId, awsAccountId)
+        policy.restApiId = apiGatewayArnTmp[0]
+        policy.region = tmp[3]
+        policy.stage = apiGatewayArnTmp[1]
+
+        authorization_header: Dict[str, str] = {
+            k.lower(): v for k, v in event['headers'].items() if k.lower() == 'authorization'}
+        auth_method: str = authorization_header['authorization']
+
+        self.policy: AuthPolicy = policy
+        self.verb: str = verb
+        self.path: str = path
+        self.resource: str = resource
+        self.auth_method: str = auth_method
+
+    def get_policy(self) -> AuthPolicy:
+        return self.policy
+
+    def get_verb(self) -> str:
+        return self.verb
+
+    def get_path(self) -> str:
+        return self.path
+
+    def get_resource(self) -> str:
+        return self.resource
+
+    def get_auth_method(self) -> str:
+        return self.auth_method
+```
