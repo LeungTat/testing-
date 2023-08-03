@@ -4131,3 +4131,56 @@ def lambda_handler(event, context):
     resource = processor.get_resource()
     auth_method = processor.get_auth_method()
     ```
+```
+Yes, you can refactor the decision logic based on the resource and the auth method using the "Dispatch Table" pattern. Dispatch tables are dictionaries that map a key to a function, allowing you to replace if/else statements with dictionary lookups.
+
+Here's a refactor of the handle_request method using a dispatch table:
+
+python
+Copy code
+from typing import Dict, Any, Union
+from authorizer import AuthPolicy, ADUtils
+import json
+
+class RequestHandler:
+
+    def __init__(self, event: Dict[str, Any]):
+        self.event = event
+        self.auth_method: str = None
+        self.policy: AuthPolicy = None
+        self.payload: Union[str, None] = None
+        self.ad_utils = ADUtils()
+        self.resource_map = {
+            ("/account-id/{account-id}", "jwt"): self._handle_account_id_resource,
+            ("/create", "jwt"): self._handle_create_resource,
+            (None, "secretKey"): self._allow_all
+        }
+
+    # ... other methods remain unchanged ...
+
+    def _handle_account_id_resource(self):
+        # code goes here
+
+    def _handle_create_resource(self):
+        # code goes here
+
+    def _allow_all(self):
+        self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+
+    def handle_request(self) -> Dict[str, Any]:
+        self._validate_event_type()
+        self._prepare_auth_method()
+        self._prepare_policy()
+
+        key = (self.event["resource"], self.auth_method)
+        handler = self.resource_map.get(key, self.policy.denyAllMethods)
+        handler()
+
+        authResponse = self.policy.build()
+        if self.payload:
+            context = {
+                'payload': json.dumps(self.payload)
+            }
+            authResponse['context'] = context
+        return authResponse
+        ```
