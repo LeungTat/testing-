@@ -4074,3 +4074,51 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         authResponse = handler.policy.build()
         return authResponse
 ```
+```
+from typing import Dict, Any
+from authorizer import AuthPolicy
+
+class EventProcessor:
+
+    def __init__(self, event: Dict[str, Any]):
+        if event['type'] != 'REQUEST':
+            raise Exception('Unauthorized')
+
+        principalId = event['requestContext']['requestId']
+        tmp = event['methodArn'].split(':')
+        apiGatewayArnTmp = tmp[5].split('/')
+        awsAccountId = tmp[4]
+        verb = event["httpMethod"]
+        path = event["path"]
+        resource = event["resource"]
+        
+        policy = AuthPolicy(principalId, awsAccountId)
+        policy.restApiId = apiGatewayArnTmp[0]
+        policy.region = tmp[3]
+        policy.stage = apiGatewayArnTmp[1]
+
+        authorization_header = {
+            k.lower(): v for k, v in event['headers'].items() if k.lower() == 'authorization'}
+        auth_method = authorization_header['authorization']
+
+        self.policy = policy
+        self.verb = verb
+        self.path = path
+        self.resource = resource
+        self.auth_method = auth_method
+
+    def get_policy(self) -> AuthPolicy:
+        return self.policy
+
+    def get_verb(self) -> str:
+        return self.verb
+
+    def get_path(self) -> str:
+        return self.path
+
+    def get_resource(self) -> str:
+        return self.resource
+
+    def get_auth_method(self) -> str:
+        return self.auth_method
+```
