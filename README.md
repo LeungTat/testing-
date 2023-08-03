@@ -4245,3 +4245,74 @@ def lambda_handler(event: Dict[str, Any], context: Optional[Any]) -> Dict[str, A
     auth_method: str = processor.get_auth_method()
     # ... remaining lambda function code ...
 ```
+```
+import json
+from typing import Dict, Any, Callable, Optional
+
+class PolicyDispatcher:
+    def __init__(self, policy, event):
+        self.policy = policy
+        self.event = event
+        self.account_number = None
+        self.access_token = None
+        self.user_transitive_groups = None
+        self.dispatch_table = {
+            ("/account-id/{account-id}", "GET", "jwt"): self.process_account_id,
+            ("/create", "POST", "jwt"): self.process_create,
+            # You can add more tuples and associated methods as needed
+        }
+
+    def process_account_id(self):
+        self.account_number = self.event['pathParameters']['account_number']
+        self.access_token = self.event['headers']['authorizationToken']
+        self.user_transitive_groups = get_user_transitive_groups(self.access_token)
+        list_cidr_target_adlds_permission = filter_user_groups(self.user_transitive_groups, list_cidr_target_adlds)
+        list_cidr_user_permission = filter_user_groups(self.user_transitive_groups, self.account_number) 
+        if list_cidr_target_adlds_permission and list_cidr_user_permission:
+            self.policy.allowMethod(self.event["httpMethod"], self.event["resource"]) 
+        else:
+            self.policy.denyAllMethods()
+
+    def process_create(self):
+        body = json.loads(self.event.get('body', '{}'))
+        self.account_number = body.get('account_number')
+        self.access_token = self.event['headers']['authorizationToken']
+        self.user_transitive_groups = get_user_transitive_groups(self.access_token)
+        create_cidr_target_adlds_permission = filter_user_groups(self.user_transitive_groups, create_cidr_target_adlds)
+        payload = aws_account_filter(self.user_transitive_groups)
+        if payload and create_cidr_target_adlds_permission:
+            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+    def dispatch(self, resource: str, verb: str, auth_method: str):
+        function: Optional[Callable[[], None]] = self.dispatch_table.get((resource, verb, auth_method))
+        if function:
+            function()
+        elif auth_method == "secretKey":
+            self.policy.allowMethod(verb, self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+```
+```
+def lambda_handler(event, context):
+    try:
+        processor = EventProcessor(event)
+        policy = processor.get_policy()
+        dispatcher = PolicyDispatcher(policy, event)
+        dispatcher.dispatch(processor.get_resource(), processor.get_verb(), processor.get_auth_method())
+
+        authResponse = policy.build()
+        if 'payload' in locals():
+            context = {
+                'payload': json.dumps(payload)
+            }
+            authResponse['context'] = context
+        return authResponse
+    except Exception as e:
+        logger.error(e)
+        policy.denyAllMethods()
+        authResponse = policy.build()
+        return authResponse
+```
