@@ -4387,3 +4387,55 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Union[str, 
         authResponse = policy.build()
         return authResponse
 ```
+```
+EventProcessor Class Documentation
+Overview
+The EventProcessor class is designed to process AWS Lambda events, specifically those of type 'REQUEST'. It extracts and manages various details from the incoming event, such as the HTTP verb, path, resource, and authorization method.
+
+Attributes
+policy: An instance of the AuthPolicy class containing information about the event's policy.
+verb: A string representing the HTTP verb (e.g., GET, POST) of the request.
+path: A string containing the path of the request.
+resource: A string describing the resource accessed by the request.
+auth_method: A string representing the authorization method used in the request.
+Methods
+__init__(self, event: Dict[str, Any]) -> None
+Constructor method. Initializes an EventProcessor object based on the provided event.
+
+Parameters:
+
+event: A dictionary containing details of the AWS Lambda event.
+Raises:
+
+Exception: If the event type is not 'REQUEST'.
+get_policy(self) -> AuthPolicy
+Returns the policy related to the event.
+
+Returns:
+
+An AuthPolicy object.
+get_verb(self) -> str
+Returns the HTTP verb of the event.
+
+Returns:
+
+A string representing the HTTP verb.
+get_path(self) -> str
+Returns the path of the event.
+
+Returns:
+
+A string representing the path.
+get_resource(self) -> str
+Returns the resource accessed in the event.
+
+Returns:
+
+A string representing the resource.
+get_auth_method(self) -> str
+Returns the authorization method used in the event.
+
+Returns:
+
+A string representing the authorization method.
+```
