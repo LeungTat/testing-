@@ -4501,3 +4501,55 @@ if __name__ == '__main__':
     unittest.main()
 
 ```
+```
+import unittest
+from your_module_where_EventProcessor_is import EventProcessor
+
+class TestEventProcessor(unittest.TestCase):
+
+    def test_event_processor_normal_case(self):
+        event = {
+            'type': 'REQUEST',
+            'requestContext': {'requestId': 'some_request_id'},
+            'methodArn': 'some:arn:info:with:accountId',
+            'httpMethod': 'GET',
+            'path': '/some/path',
+            'resource': '/some/resource',
+            'headers': {'authorization': 'some_authorization_token'}
+        }
+
+        processor = EventProcessor(event)
+
+        self.assertEqual(processor.get_policy().principalId, 'some_request_id')
+        self.assertEqual(processor.get_verb(), 'GET')
+        self.assertEqual(processor.get_path(), '/some/path')
+        self.assertEqual(processor.get_resource(), '/some/resource')
+        self.assertEqual(processor.get_auth_method(), 'some_authorization_token')
+
+    def test_event_processor_unauthorized_type(self):
+        event = {
+            'type': 'SOME_OTHER_TYPE'
+            # other fields omitted for brevity
+        }
+
+        with self.assertRaises(Exception):
+            EventProcessor(event)
+
+    def test_event_processor_missing_authorization(self):
+        event = {
+            'type': 'REQUEST',
+            'requestContext': {'requestId': 'some_request_id'},
+            'methodArn': 'some:arn:info:with:accountId',
+            'httpMethod': 'GET',
+            'path': '/some/path',
+            'resource': '/some/resource',
+            # No headers field in this event
+        }
+
+        processor = EventProcessor(event)
+
+        self.assertEqual(processor.get_auth_method(), 'unknown')
+
+if __name__ == '__main__':
+    unittest.main()
+```
