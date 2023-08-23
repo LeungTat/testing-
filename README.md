@@ -4439,3 +4439,65 @@ Returns:
 
 A string representing the authorization method.
 ```
+```
+import unittest
+from unittest.mock import patch, Mock
+
+# Assuming the original class and methods are in a module named `authorizer`
+from authorizer import PolicyDispatcher, EventProcessor
+
+class TestPolicyDispatcher(unittest.TestCase):
+
+    def setUp(self):
+        self.sample_event = {
+            "type": "REQUEST",
+            "requestContext": {
+                "requestId": "sample_id"
+            },
+            "methodArn": "arn:aws:execute-api:us-west-1:123456789012:s0meId/prod/GET/",
+            "httpMethod": "GET",
+            "path": "/sample-path",
+            "resource": "/sample-resource",
+            "headers": {
+                "authorization": "jwt"
+            }
+        }
+
+    @patch("authorizer.get_user_transitive_groups")
+    @patch("authorizer.filter_user_groups")
+    def test_process_account_id(self, mock_filter_user_groups, mock_get_user_transitive_groups):
+        # Mock the external calls
+        mock_get_user_transitive_groups.return_value = ["group1", "group2"]
+        mock_filter_user_groups.return_value = True
+
+        processor = EventProcessor(self.sample_event)
+        policy = Mock()  # Create a mock policy
+        dispatcher = PolicyDispatcher(policy, self.sample_event)
+        dispatcher.process_account_id()
+
+        policy.allowMethod.assert_called_once()  # Assert that allowMethod was called once
+
+    @patch("authorizer.get_user_transitive_groups")
+    @patch("authorizer.filter_user_groups")
+    @patch("authorizer.aws_account_filter")
+    def test_process_create(self, mock_aws_account_filter, mock_filter_user_groups, mock_get_user_transitive_groups):
+        # Mock the external calls
+        mock_get_user_transitive_groups.return_value = ["group1", "group2"]
+        mock_filter_user_groups.return_value = True
+        mock_aws_account_filter.return_value = True
+
+        self.sample_event['httpMethod'] = 'POST'
+        self.sample_event['path'] = '/create'
+        self.sample_event['body'] = json.dumps({"account_number": "1234567890"})
+
+        processor = EventProcessor(self.sample_event)
+        policy = Mock()  # Create a mock policy
+        dispatcher = PolicyDispatcher(policy, self.sample_event)
+        dispatcher.process_create()
+
+        policy.allowMethod.assert_called_once()  # Assert that allowMethod was called once
+
+if __name__ == '__main__':
+    unittest.main()
+
+```
