@@ -4650,3 +4650,56 @@ def test_lambda_handler_unexpected_lambda_response(mock_boto_client, mock_event,
     assert response["statusCode"] == 400
     assert "This is not a valid request" in json.loads(response["body"])
 ```
+```
+from unittest.mock import patch, MagicMock, Mock
+import unittest
+import json
+from your_module import lambda_handler  # Replace 'your_module' with the actual module name
+
+class TestLambdaFunction(unittest.TestCase):
+
+    @patch("your_module.input_validation")
+    @patch("your_module.cmp_cidr_reciever")
+    @patch("your_module.cmp_cidr_creator")
+    @patch("your_module.account_number_dispatcher")
+    @patch("boto3.client")
+    def test_lambda_handler_one_cidr_per_region(self, mock_boto_client, mock_account_number_dispatcher, mock_cmp_cidr_creator, mock_cmp_cidr_reciever, mock_input_validation):
+        # Setup mock for boto3 client
+        mock_lambda = MagicMock()
+        mock_boto_client.return_value = mock_lambda
+        mock_lambda.invoke.return_value = {'Payload': MagicMock(read=lambda: json.dumps({"some_key": "some_value"}).encode("utf-8"))}
+
+        # Mock the return values of internal functions
+        mock_account_number_dispatcher.return_value = json.dumps({"id": "some_id", "is_live": "0"})
+        mock_cmp_cidr_reciever.return_value = [{"region": "us-east-1"}]  # The region already exists
+        mock_input_validation.return_value = True  # Input validation passes
+
+        # Prepare the event payload
+        event = {
+            "body": json.dumps({
+                "account_number": "1234567890",
+                "region": "us-east-1",
+                "ipv4_subnet_mask": 25
+            }),
+            "requestContext": {
+                "authorizer": {
+                    "payload": ["1234567890"],
+                    "administrator_cidr_target_adlds_permission": "false"
+                }
+            }
+        }
+
+        context = MagicMock()
+
+        # Invoke the lambda function and check the response
+        response = lambda_handler(event, context)
+
+        self.assertEqual(response["statusCode"], 400)
+        expected_body = "Only one CIDR is allowed per region"
+        self.assertEqual(json.loads(response["body"]), expected_body)
+
+    # ... (your other test cases)
+
+if __name__ == '__main__':
+    unittest.main()
+```
