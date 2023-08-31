@@ -4553,3 +4553,100 @@ class TestEventProcessor(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+```
+import json
+import pytest
+from unittest.mock import patch, Mock
+from your_lambda_file import lambda_handler  # Replace 'your_lambda_file' with the actual file name
+
+@pytest.fixture
+def mock_env_variables(monkeypatch):
+    monkeypatch.setenv('endpoint_cidr_blocks', 'some_value')
+    monkeypatch.setenv('cmp_relay_function_arn', 'some_value')
+    monkeypatch.setenv('account_dispatch_function_arn', 'some_value')
+
+@pytest.fixture
+def mock_event():
+    return {
+        "body": json.dumps({"account_number": "1234", "region": "eu-west-1", "ipv4_subnet_mask": 25}),
+        "requestContext": {
+            "authorizer": {
+                "payload": ["1234"],
+                "administrator_cidr_target_adlds_permission": "false"
+            }
+        }
+    }
+
+@pytest.fixture
+def mock_context():
+    return Mock()
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_success(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_lambda = Mock()
+    mock_lambda.invoke.return_value = {'Payload': Mock(read=lambda: json.dumps({"some_key": "some_value"}).encode("utf-8"))}
+    mock_boto_client.return_value = mock_lambda
+
+    response = lambda_handler(mock_event, mock_context)
+
+    assert response["statusCode"] == 200
+    assert "This CIDR range" in json.loads(response["body"])
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_invalid_trigger(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_event['body'] = None
+
+    response = lambda_handler(mock_event, mock_context)
+
+    assert response["statusCode"] == 500
+    assert "Invalid trigger" in json.loads(response["body"])
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_not_allowed_action(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_event['requestContext']['authorizer']['payload'] = []
+
+    response = lambda_handler(mock_event, mock_context)
+
+    assert response["statusCode"] == 400
+    assert "You are not allowed perform this action" in json.loads(response["body"])
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_invalid_region(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_event['body'] = json.dumps({"account_number": "1234", "region": "invalid-region", "ipv4_subnet_mask": 25})
+    
+    response = lambda_handler(mock_event, mock_context)
+
+    assert response["statusCode"] == 400
+    assert "This is not allowed AWS region" in json.loads(response["body"])
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_invalid_subnet_mask(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_event['body'] = json.dumps({"account_number": "1234", "region": "eu-west-1", "ipv4_subnet_mask": 23})
+    
+    response = lambda_handler(mock_event, mock_context)
+
+    assert response["statusCode"] == 400
+    assert "Request subnet mask is larger than 24" in json.loads(response["body"])
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_account_live(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_lambda = Mock()
+    mock_lambda.invoke.return_value = {'Payload': Mock(read=lambda: json.dumps({"id": "5678", "is_live": "1"}).encode("utf-8"))}
+    mock_boto_client.return_value = mock_lambda
+
+    response = lambda_handler(mock_event, mock_context)
+
+    assert response["statusCode"] == 400
+    assert "This Account has already gone live" in json.loads(response["body"])
+
+@patch('your_lambda_file.boto3.client')
+def test_lambda_handler_unexpected_lambda_response(mock_boto_client, mock_event, mock_context, mock_env_variables):
+    mock_lambda = Mock()
+    mock_lambda.invoke.return_value = {'Payload': Mock(read=lambda: "not a json string".encode("utf-8"))}
+    mock_boto_client.return_value = mock_lambda
+    
+    response = lambda_handler(mock_event, mock_context)
+    
+    assert response["statusCode"] == 400
+    assert "This is not a valid request" in json.loads(response["body"])
+```
