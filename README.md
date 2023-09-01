@@ -4703,3 +4703,56 @@ class TestLambdaFunction(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 ```
+```
+import unittest
+from unittest.mock import patch, Mock, MagicMock
+import json
+from your_module import lambda_hander  # Replace 'your_module' with the actual module name
+
+class TestLambdaHandler(unittest.TestCase):
+
+    @patch('your_module.boto3.client')
+    def test_lambda_handler_success(self, mock_boto_client):
+        mock_lambda = Mock()
+        mock_lambda.invoke.return_value = {'Payload': Mock(read=lambda: json.dumps({"body": "some_value"}).encode("utf-8"))}
+        mock_boto_client.return_value = mock_lambda
+        
+        event = {
+            "pathParameters": {"account_number": "123456"},
+        }
+        context = MagicMock()
+
+        response = lambda_hander(event, context)
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(json.loads(response["body"]), {"body": "some_value"})
+
+    @patch('your_module.boto3.client')
+    def test_lambda_handler_cidr_not_exist(self, mock_boto_client):
+        mock_lambda = Mock()
+        mock_lambda.invoke.return_value = {'Payload': Mock(read=lambda: json.dumps({"result": None}).encode("utf-8"))}
+        mock_boto_client.return_value = mock_lambda
+
+        event = {
+            "pathParameters": {"account_number": "123456"},
+        }
+        context = MagicMock()
+
+        response = lambda_hander(event, context)
+
+        self.assertEqual(response["statusCode"], 400)
+        self.assertEqual(json.loads(response["body"]), "This CIDR ID does not exist in CMP")
+
+    def test_lambda_handler_invalid_trigger(self):
+        event = {}
+        context = MagicMock()
+
+        response = lambda_hander(event, context)
+
+        self.assertEqual(response["statusCode"], 500)
+        self.assertEqual(json.loads(response["body"]), "Invalid trigger")
+
+if __name__ == '__main__':
+    unittest.main()
+
+```
