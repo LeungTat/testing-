@@ -4756,3 +4756,63 @@ if __name__ == '__main__':
     unittest.main()
 
 ```
+
+
+```
+Sure, let's restructure your code to make the Test stage in the codepipeline_ci module conditional based on the var.enviroment.
+
+First, let's define a local variable to decide whether to include the Test stage:
+hcl
+Copy code
+locals {
+  include_test_stage = contains(["dev", "pre-prod"], var.enviroment) ? true : false
+}
+Then, adjust the module codepipeline_ci to conditionally include the Test stage using the local variable:
+Here's your updated code:
+
+hcl
+Copy code
+locals {
+  include_test_stage = contains(["dev", "pre-prod"], var.enviroment) ? true : false
+}
+
+module "codepipeline_ci" {
+  count = var.enviroment == "prod" ? 0 : 1
+  source = "../modules/codepipeline"
+  name = "${var.pipeline_name}-ci"
+  source_provider = "S3"
+  source_config_s3 ={
+    S3Bucket = local.sources_bucket_name
+    S3ObjectKey = var.pipline_ci_source
+    PollForSourceChanges = true
+  }
+  artificats_bucket_name = local.artifacts_bucket_name
+  
+  free_stages = local.include_test_stage ? [
+    {
+      name = "Test"
+      actions = [
+        {
+          name = var.pipline_stage_settings.lint_unit_test.name
+          category = var.pipline_stage_settings.lint_unit_test.category
+          owner = "AWS"
+          provider = "CodeBuild"
+          namespace = var.pipline_stage_settings.lint_unit_test.namespace
+          input_artifacts = var.pipline_stage_settings.lint_unit_test.input_artifacts
+          output_artifacts = var.pipline_stage_settings.lint_unit_test.output_artifacts
+          version = "1"
+          configuration = merge(
+            {
+              ProjectName = module.codebuild_lint_unit_test.codebuild_project_name
+            },
+            local.formatted_pipline_stages_extra_config.lint_unit_test
+          )
+        }
+      ]
+    }
+  ] : []
+}
+In the adjusted code, I introduced the locals block to determine whether the Test stage should be included. Then, in the codepipeline_ci module, I used the include_test_stage local variable to conditionally set the free_stages attribute.
+
+Remember to test these changes thoroughly before applying them in your environment.
+```
