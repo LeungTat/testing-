@@ -4816,3 +4816,43 @@ In the adjusted code, I introduced the locals block to determine whether the Tes
 
 Remember to test these changes thoroughly before applying them in your environment.
 ```
+
+```
+If you want to run the Test stage in the dev environment only and the Scan stage in the prod environment only, you can adjust the codepipline_cd module to conditionally add stages based on the var.enviroment value.
+
+Here's how:
+
+Define two local variables, one for including the Test stage and the other for including the Scan stage:
+hcl
+Copy code
+locals {
+  include_test_stage = var.enviroment == "dev" ? true : false
+  include_scan_stage = var.enviroment == "prod" ? true : false
+}
+Modify the codepipline_cd module to conditionally include the Test and Scan stages:
+hcl
+Copy code
+module "codepipline_cd" {
+  # ... (rest of the module code)
+
+  free_stages = concat(
+    local.include_test_stage ? [{
+      name    = "Test"
+      actions = [
+        {
+          # ... (rest of the Test action details)
+        }
+      ]
+    }] : [],
+
+    local.include_scan_stage ? [{
+      name    = "Scan"
+      actions = [
+        {
+          # ... (rest of the Scan action details)
+        }
+      ]
+    }] : []
+  )
+}
+```
