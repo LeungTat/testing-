@@ -4856,3 +4856,7 @@ module "codepipline_cd" {
   )
 }
 ```
+
+```
+"Scheduling conflicts with other changes for this service have been reviewed and are not an issue. Enabling the Service Control Policy (SCP) on the AWS master account for the project team is an independent action. This means it operates separately from other configurations or changes within the service. Implementing the SCP won't interfere with, nor be impacted by, any other ongoing or planned modifications for this service. Thus, the team can proceed with this action confidently, knowing it won't inadvertently disrupt other service changes."
+```
