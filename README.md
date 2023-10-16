@@ -4936,3 +4936,51 @@ def lambda_handler(event, context):
         }
     }
 ```
+
+```
+import json
+import os
+
+def generate_tfvars_for_env(environment_data):
+    account_id = environment_data.get('account_id', '')
+    tfvars_dict = {
+        'region': 'eu-west-1',
+        'bucket': f"{account_id}-tf-state",
+        'key': 'release-orchestration/base-infra/terraform.tfstate'
+    }
+    return json.dumps(tfvars_dict, indent=4)
+
+def lambda_handler(event, context):
+    # Extracting the environment details from the event body
+    environment = event.get('environment', {})
+    
+    # Directory where we'll store populated tfvars
+    directory = '/tmp/builds/base/backend_config/'
+
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # For each environment, generate the tfvars and write to a file
+    account_ids = {}  # To store account_ids for each environment
+    for env_name in ['dev', 'preprod', 'prod']:
+        content = generate_tfvars_for_env(environment.get(env_name, {}))
+        
+        # Extract and store the account_id for the environment
+        account_ids[env_name] = environment.get(env_name, {}).get('account_id', 'N/A')
+        
+        with open(os.path.join(directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(content)
+
+    # Return a success message with the paths to the generated files and the account_ids
+    return {
+        'statusCode': 200,
+        'body': {
+            'message': f"TFVars files generated at {directory}",
+            'account_ids': account_ids
+        },
+        'headers': {
+            'Content-Type': 'application/json'
+        }
+    }
+```
