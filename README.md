@@ -4865,3 +4865,74 @@ module "codepipline_cd" {
 ```
 "Scheduling conflicts with other changes for this service have been reviewed and are not an issue. Enabling the Service Control Policy (SCP) on the AWS master account for the project team is an independent action. This means it operates separately from other configurations or changes within the service. Hence, the team may advance with this action, assured in the knowledge that it shall not inadvertently impede or conflict with other service modifications."
 ```
+
+
+```
+import os
+import re
+from string import Template
+
+def extract_placeholders_from_template(template_path):
+    # Read the template
+    with open(template_path, 'r') as file:
+        template_content = file.read()
+    
+    # Use regex to find all placeholders of the format ${variable_name}
+    placeholders = re.findall(r'\$\{(\w+)\}', template_content)
+    
+    return placeholders
+
+def populate_tfvars_from_template(template_path, environment_data):
+    # Read the template
+    with open(template_path, 'r') as file:
+        template_content = file.read()
+    
+    # Use the Template class to substitute placeholders with actual values
+    template = Template(template_content)
+    populated_content = template.safe_substitute(environment_data)
+    
+    return populated_content
+
+def lambda_handler(event, context):
+    # Extracting the environment details from the event body
+    environment = event.get('environment', {})
+    
+    # Directory where we'll store populated tfvars
+    directory = '/tmp/builds/base/backend_config/'
+
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # For each environment, extract placeholders, populate the template, and write to a file
+    for env_name in ['dev', 'preprod', 'prod']:
+        template_path = os.path.join(os.environ['LAMBDA_TASK_ROOT'], f'{env_name}_template.tfvars')
+        
+        # Extract placeholders
+        placeholders = extract_placeholders_from_template(template_path)
+        
+        # Check if we have data for all placeholders
+        missing_data = [p for p in placeholders if p not in environment.get(env_name, {})]
+        if missing_data:
+            return {
+                'statusCode': 400,
+                'body': f"Missing data for placeholders: {', '.join(missing_data)} in {env_name} environment",
+                'headers': {
+                    'Content-Type': 'text/plain'
+                }
+            }
+        
+        populated_content = populate_tfvars_from_template(template_path, environment.get(env_name, {}))
+        
+        with open(os.path.join(directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(populated_content)
+
+    # Return a success message with the paths to the generated files
+    return {
+        'statusCode': 200,
+        'body': f"TFVars files generated at {directory}",
+        'headers': {
+            'Content-Type': 'text/plain'
+        }
+    }
+```
