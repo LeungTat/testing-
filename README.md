@@ -4997,3 +4997,171 @@ pipeline_cd_source = "{{ pipeline_cd_source }}"
 pipeline_stages_settings = {{ pipeline_stages_settings | tojson }}
 
 ```
+
+```
+import hcl2
+import json
+
+# Assume `request_body` is a string containing the JSON request body
+request_body = '''
+{
+    "eim_id" : "9681879",
+    // ... (rest of your JSON data) ...
+}
+'''
+
+# Parse the JSON data
+data = json.loads(request_body)
+
+# Read the template.tfvars file
+with open('template.tfvars', 'r') as f:
+    template_content = f.read()
+
+# Replace placeholders with actual values
+updated_content = template_content.replace('{{ vpc_id }}', data['environment']['dev']['vpc_id'])
+updated_content = updated_content.replace('{{ subnet_ids }}', ', '.join(data['environment']['dev']['non_routable_subnets']))
+updated_content = updated_content.replace('{{ pipeline_name }}', data['pipline_name'])
+updated_content = updated_content.replace('{{ pipeline_ci_source }}', f'{data["github_repo_url"].rstrip("/")}/source-ci.zip')
+updated_content = updated_content.replace('{{ pipeline_cd_source }}', f'{data["github_repo_url"].rstrip("/")}/source-cd.zip')
+
+# Parse the updated content to ensure it's valid HCL
+parsed_hcl = hcl2.loads(updated_content)
+
+# Write the updated content to a new tfvars file
+with open('updated.tfvars', 'w') as f:
+    f.write(updated_content)
+```
+
+```
+import json
+
+# Assume data is the JSON payload you received
+data = {
+    "eim_id": "9681879",
+    "environment": {
+        "dev": {
+            "account_id": "123465789",
+            "vpc_id": "vpc-123456789",
+            "non_routable_subnets": [
+                "subnet-123456789",
+                "subnet-123456789",
+                "subnet-123456789"
+            ]
+        },
+        "preprod": {
+            "account_id": "123465789",
+            "vpc_id": "vpc-123456789",
+            "non_routable_subnets": [
+                "subnet-123456789",
+                "subnet-123456789",
+                "subnet-123456789"
+            ]
+        },
+        "prod": {
+            "account_id": "123465789",
+            "vpc_id": "vpc-123456789",
+            "non_routable_subnets": [
+                "subnet-123456789",
+                "subnet-123456789",
+                "subnet-123456789"
+            ]
+        }
+    },
+    "github_repo_url": "http://alm-github.systems.uk.hsbc/GCS-AWS-Microservices/account-metadata/",
+    "pipline_name": "account_metata"
+}
+
+# Split the URL by '/'
+url_parts = data["github_repo_url"].split('/')
+
+# Get the last three parts and join them with '/'
+desired_string = '/'.join(url_parts[-3:])
+
+# Now append the desired suffix
+pipeline_ci_source = f'{desired_string}source-ci.zip'
+pipeline_cd_source = f'{desired_string}source-cd.zip'
+
+print(pipeline_ci_source)  # Outputs: GCS-AWS-Microservices/account-metadata/source-ci.zip
+print(pipeline_cd_source)  # Outputs: GCS-AWS-Microservices/account-metadata/source-cd.zip
+```
+```
+import json
+
+# Assume data is the JSON payload you received
+data = {
+    "eim_id": "9681879",
+    # ... other data ...
+    "github_repo_url": "http://alm-github.systems.uk.hsbc/GCS-AWS-Microservices/account-metadata",
+    "pipline_name": "account_metata"
+}
+
+# Split the URL by '/'
+url_parts = data["github_repo_url"].split('/')
+
+# Get the last three parts and join them with '/'
+# Since there's no trailing slash, url_parts[-1] will be 'account-metadata' and not an empty string
+desired_string = '/'.join(url_parts[-3:])
+
+# Ensure there's a trailing slash
+if not desired_string.endswith('/'):
+    desired_string += '/'
+
+# Now append the desired suffix
+pipeline_ci_source = f'{desired_string}source-ci.zip'
+pipeline_cd_source = f'{desired_string}source-cd.zip'
+
+print(pipeline_ci_source)  # Outputs: GCS-AWS-Microservices/account-metadata/source-ci.zip
+print(pipeline_cd_source)  # Outputs: GCS-AWS-Microservices/account-metadata/source-cd.zip
+```
+
+```
+# Assume data is the JSON payload you received
+data = {
+    "eim_id": "9681879",
+    # ... other data ...
+    "github_repo_url": "http://alm-github.systems.uk.hsbc/GCS-AWS-Microservices/account-metadata",
+    "pipline_name": "account_metata"
+}
+
+# Split the URL by '/'
+url_parts = data["github_repo_url"].split('/')
+
+# Get the last two parts, replace slashes with hyphens, and join them with a hyphen
+formatted_string = '-'.join(url_parts[-2:])
+
+# Now you have the formatted string
+print(formatted_string)  # Outputs: GCS-AWS-Microservices-account-metadata
+```
+
+```
+environment = "dev"
+vpc_id = "{{ vpc_id }}"
+subnet_ids = ["{{ subnet_id_1 }}", "{{ subnet_id_2 }}", "{{ subnet_id_3 }}"]
+build_svc_role_policy_arns = ["{{ build_svc_role_policy_arn }}"]
+build_settings = {
+    lint_unit_test = {
+        name        = "lint-unit-test"
+        description = "Linting and unit test"
+        buildspec   = "buildspec/lint_unit_test.yaml"
+        image       = "7257134640.dkr.ecr.eu-west-1.amazonaws.com/scanned/release/gcs/jenkins-aws01/terraform-awscli-codebuild:multi"
+    },
+    # ... other build settings ...
+}
+
+pipeline_name = "{{ pipeline_name }}"
+pipeline_ci_source = "{{ github_repo_formatted }}/source-ci.zip"
+pipeline_cd_source = "{{ github_repo_formatted }}/source-cd.zip"
+
+pipeline_stages_settings = {
+  "lint_unit_test" = {
+    name = "LintAndUnitTest"
+    category = "Test"
+    namespace = "LintAndUnitTestVariables"
+    input_artifacts = ["SourceArtifact"]
+    output_artifacts = ["LintAndUnitTestArtifact"]
+    extra_configuration = {}
+  },
+  # ... other pipeline stages settings ...
+}
+
+```
