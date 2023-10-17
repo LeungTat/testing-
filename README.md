@@ -4984,3 +4984,16 @@ def lambda_handler(event, context):
         }
     }
 ```
+
+```
+environment = "{{ environment }}"
+vpc_id = "{{ vpc_id }}"
+subnet_ids = {{ subnet_ids | tojson }}
+build_svc_role_policy_arns = {{ build_svc_role_policy_arns | tojson }}
+build_settings = {{ build_settings | tojson }}
+pipeline_name = "{{ pipeline_name }}"
+pipeline_ci_source = "{{ pipeline_ci_source }}"
+pipeline_cd_source = "{{ pipeline_cd_source }}"
+pipeline_stages_settings = {{ pipeline_stages_settings | tojson }}
+
+```
