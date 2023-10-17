@@ -5165,3 +5165,183 @@ pipeline_stages_settings = {
 }
 
 ```
+import os
+import hcl2
+import json
+
+def populate_tfvars_from_template(template_path, environment_data):
+    # Read the template using python-hcl2
+    with open(template_path, 'r') as file:
+        template_content = hcl2.load(file)
+
+    # Update the template content with values from environment_data
+    account_id = environment_data.get('account_id', '')
+    template_content['bucket'] = f"{account_id}-tf-state"
+    
+    return json.dumps(template_content, indent=4)
+
+def lambda_handler(event, context):
+    # Extracting the environment details from the event body
+    environment = event.get('environment', {})
+
+    # Directory where we'll store populated tfvars
+    directory = '/tmp/builds/base/backend_config/'
+
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # For each environment, populate the template and write to a file
+    for env_name in ['dev', 'preprod', 'prod']:
+        template_path = os.path.join(os.environ['LAMBDA_TASK_ROOT'], f'{env_name}_template.tfvars')
+        populated_content = populate_tfvars_from_template(template_path, environment.get(env_name, {}))
+        
+        with open(os.path.join(directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(populated_content)
+
+    # Return a success message with the paths to the generated files
+    return {
+        'statusCode': 200,
+        'body': f"TFVars files generated at {directory}",
+        'headers': {
+            'Content-Type': 'text/plain'
+        }
+    }
+```
+
+```
+import json
+import os
+
+def generate_tfvars_for_env(environment_data):
+    account_id = environment_data.get('account_id', '')
+    tfvars_dict = {
+        'region': 'eu-west-1',
+        'bucket': f"{account_id}-tf-state",
+        'key': 'release-orchestration/base-infra/terraform.tfstate'
+    }
+    return json.dumps(tfvars_dict, indent=4)
+
+def lambda_handler(event, context):
+    # Extracting the environment details from the event body
+    environment = event.get('environment', {})
+    
+    # Directory where we'll store populated tfvars
+    directory = '/tmp/builds/base/backend_config/'
+
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # For each environment, generate the tfvars and write to a file
+    for env_name in ['dev', 'preprod', 'prod']:
+        content = generate_tfvars_for_env(environment.get(env_name, {}))
+        
+        with open(os.path.join(directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(content)
+
+    # Return a success message with the paths to the generated files
+    return {
+        'statusCode': 200,
+        'body': f"TFVars files generated at {directory}",
+        'headers': {
+            'Content-Type': 'text/plain'
+        }
+    }
+```
+
+```
+import json
+import os
+
+def generate_tfvars_for_env(environment_data):
+    account_id = environment_data.get('account_id', '')
+    tfvars_dict = {
+        'region': 'eu-west-1',
+        'bucket': f"{account_id}-tf-state",
+        'key': 'release-orchestration/base-infra/terraform.tfstate'
+    }
+    return json.dumps(tfvars_dict, indent=4)
+
+def lambda_handler(event, context):
+    # Extracting the environment details from the event body
+    environment = event.get('environment', {})
+    
+    # Directory where we'll store populated tfvars
+    directory = '/tmp/builds/base/backend_config/'
+
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # For each environment, generate the tfvars and write to a file
+    account_ids = {}  # To store account_ids for each environment
+    for env_name in ['dev', 'preprod', 'prod']:
+        content = generate_tfvars_for_env(environment.get(env_name, {}))
+        
+        # Extract and store the account_id for the environment
+        account_ids[env_name] = environment.get(env_name, {}).get('account_id', 'N/A')
+        
+        with open(os.path.join(directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(content)
+
+    # Return a success message with the paths to the generated files and the account_ids
+    return {
+        'statusCode': 200,
+        'body': {
+            'message': f"TFVars files generated at {directory}",
+            'account_ids': account_ids
+        },
+        'headers': {
+            'Content-Type': 'application/json'
+        }
+    }
+```
+```
+region = "eu-west-1"
+bucket = "${account_id}-tf-state"
+key = "release-orchestration/base-infra/terraform.tfstate"
+
+
+import os
+from string import Template
+
+def populate_tfvars_from_template(template_path, environment_data):
+    # Read the template
+    with open(template_path, 'r') as file:
+        template_content = file.read()
+    
+    # Use the Template class to substitute placeholders with actual values
+    template = Template(template_content)
+    populated_content = template.substitute(environment_data)
+    
+    return populated_content
+
+def lambda_handler(event, context):
+    # Extracting the environment details from the event body
+    environment = event.get('environment', {})
+    
+    # Directory where we'll store populated tfvars
+    directory = '/tmp/builds/base/backend_config/'
+
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # For each environment, populate the template and write to a file
+    for env_name in ['dev', 'preprod', 'prod']:
+        template_path = os.path.join(os.environ['LAMBDA_TASK_ROOT'], f'{env_name}_template.tfvars')
+        populated_content = populate_tfvars_from_template(template_path, environment.get(env_name, {}))
+        
+        with open(os.path.join(directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(populated_content)
+
+    # Return a success message with the paths to the generated files
+    return {
+        'statusCode': 200,
+        'body': f"TFVars files generated at {directory}",
+        'headers': {
+            'Content-Type': 'text/plain'
+        }
+    }
+```
