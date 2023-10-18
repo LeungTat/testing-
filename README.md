@@ -5428,6 +5428,54 @@ def transform_data(input_data):
 input_data = {
     # ... (as provided)
 }
+```
+```
+class DataTransformer:
+    def __init__(self, input_data):
+        self.input_data = input_data
+        
+    def transform(self):
+        # Ensure github_repo_url does not have a trailing slash for consistent formatting
+        github_repo_url = self.input_data['github_repo_url'].rstrip('/')
+        pipline_name = self.input_data['pipline_name']
+        
+        # Prepare the base structure of output_data
+        output_data = {
+            'eim_id': self.input_data['eim_id'],
+            'environment': {}
+        }
+        
+        # Process each environment
+        for env, details in self.input_data['environment'].items():
+            # Extract and restructure subnet data
+            subnet_ids = details['non_routable_subnets']
+            subnet_data = {f'subnet_id_{i+1}': subnet_id for i, subnet_id in enumerate(subnet_ids)}
+            
+            # Prepare the data for this environment
+            env_data = {
+                'account_id': details['account_id'],
+                'vpc_id': details['vpc_id'],
+                'pipeline_name': pipline_name,
+                'pipeline_ci_source': f'{github_repo_url}/source-ci.zip',
+                'pipeline_cd_source': f'{github_repo_url}/source-cd.zip',
+                **subnet_data  # Merge subnet_data into env_data
+            }
+            
+            # Add this environment's data to the output_data
+            output_data['environment'][env] = env_data
+        
+        return output_data
+
+# Usage:
+input_data = {
+    # ... (as provided)
+}
+
+transformer = DataTransformer(input_data)
+output_data = transformer.transform()
+print(output_data)
+```
+
 
 output_data = transform_data(input_data)
 print(output_data)
