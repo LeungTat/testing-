@@ -5524,3 +5524,101 @@ transformer = DataTransformer(input_data)
 output_data = transformer.transform()
 print(output_data)
 ```
+```
+from typing import List, Dict, Any
+
+class TerraformProcessor:
+
+    def __init__(self, tf, working_directory: str, input_data: Dict[str, Any]):
+        self.tf = tf
+        self.working_directory = working_directory
+        self.input_data = input_data
+        self.transformer = DataTransformer(self.input_data)
+
+    def extract_placeholders_from_template(self, template_path: str) -> List[str]:
+        # Logic for extracting placeholders from template goes here
+        pass
+
+    def populate_tfvars_from_template(self, template_path: str, data: Dict[str, Any]) -> str:
+        # Logic for populating tfvars from template goes here
+        pass
+
+    def process_backend_config(self, env_name: str) -> None:
+        backend_config_directory = os.path.join(self.working_directory, 'backend_config/')
+        template_path = os.path.join(backend_config_directory, 'template.tfvars')
+        placeholders = self.extract_placeholders_from_template(template_path)
+        output_data = self.transformer.transform()
+        missing_data = [p for p in placeholders if p not in output_data['environment'].get(env_name, {})]
+        if missing_data:
+            print('some variable missing')
+        populated_content = self.populate_tfvars_from_template(template_path, output_data['environment'].get(env_name, {}))
+        with open(os.path.join(backend_config_directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(populated_content)
+
+    def process_env_vars(self, env_name: str) -> None:
+        env_vars_directory = os.path.join(self.working_directory, 'env_vars/')
+        template_path = os.path.join(env_vars_directory, f'template.{env_name}.tfvars')
+        placeholders = self.extract_placeholders_from_template(template_path)
+        output_data = self.transformer.transform()
+        missing_data = [p for p in placeholders if p not in output_data['environment'].get(env_name, {})]
+        if missing_data:
+            print('some variable missing')
+        populated_content = self.populate_tfvars_from_template(template_path, output_data['environment'].get(env_name, {}))
+        with open(os.path.join(env_vars_directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(populated_content)
+
+    def process_environments(self, env_list: List[str], process_env_vars: bool = True) -> None:
+        for env_name in env_list:
+            self.process_backend_config(env_name)
+            if process_env_vars:
+                self.process_env_vars(env_name)
+
+# Using the class
+environments = ['dev', 'preprod', 'prod']
+
+with TerraformRunner('./builds/base', target_creds) as tf:
+    processor = TerraformProcessor(tf, tf.working_dir, input_data)
+    processor.process_environments(environments, process_env_vars=False)
+
+with TerraformRunner('./builds/pipeline', target_creds) as tf:
+    processor = TerraformProcessor(tf, tf.working_dir, input_data)
+    processor.process_environments(environments)
+```
+```
+def process_environments(tf, working_directory, input_data, env_list, process_env_vars=True):
+    for env_name in env_list:
+        backend_config_directory = os.path.join(working_directory, 'backend_config/')
+        template_path = os.path.join(backend_config_directory, 'template.tfvars')
+        placeholders = extract_placeholders_from_template(template_path)
+        transformer = DataTransformer(input_data)
+        output_data = transformer.transform()
+        missing_data = [p for p in placeholders if p not in output_data['environment'].get(env_name, {})]
+        if missing_data:
+            print('some variable missing')
+        populated_content = populate_tfvars_from_template(template_path, output_data['environment'].get(env_name, {}))
+        with open(os.path.join(backend_config_directory, f'{env_name}.tfvars'), 'w') as f:
+            f.write(populated_content)
+
+    if process_env_vars:
+        for env_name in env_list:
+            env_vars_directory = os.path.join(working_directory, 'env_vars/')
+            template_path = os.path.join(env_vars_directory, f'template.{env_name}.tfvars')
+            placeholders = extract_placeholders_from_template(template_path)
+            transformer = DataTransformer(input_data)
+            output_data = transformer.transform()
+            missing_data = [p for p in placeholders if p not in output_data['environment'].get(env_name, {})]
+            if missing_data:
+                print('some variable missing')
+            populated_content = populate_tfvars_from_template(template_path, output_data['environment'].get(env_name, {}))
+            with open(os.path.join(env_vars_directory, f'{env_name}.tfvars'), 'w') as f:
+                f.write(populated_content)
+
+# Using the function
+environments = ['dev', 'preprod', 'prod']
+
+with TerraformRunner('./builds/base', target_creds) as tf:
+    process_environments(tf, tf.working_dir, input_data, environments, process_env_vars=False)
+
+with TerraformRunner('./builds/pipeline', target_creds) as tf:
+    process_environments(tf, tf.working_dir, input_data, environments)
+```
