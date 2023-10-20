@@ -5666,3 +5666,61 @@ def lambda_handler(event: Dict, context: Any) -> None:
             print(os.listdir('/tmp'))
             return
 ```
+
+```
+def lambda_handler(event: Dict, context: Any) -> None:
+    # Extracting the SQS message payload.
+    payload = json.loads(event["Records"][0]["body"])
+    # Identify the source SQS queue based on the event source ARN.
+    source_queue_arn = event["Records"][0]["eventSourceARN"]
+    
+    current_env = payload["current"]
+    action = payload["action"]
+    
+    NEXT_ENVS = {
+        'dev': 'preprod',
+        'preprod': 'prod',
+        'prod': None
+    }
+    
+    PREV_ENVS = {
+        'dev': None,
+        'preprod': 'dev',
+        'prod': 'preprod'
+    }
+    
+    sqs_client = Boto3Client('sqs')  # Adjust according to your needs.
+    
+    # Depending on the ARN, determine if the message came from DLQ or normal queue.
+    if "deadletterqueue-name" in source_queue_arn:  # Replace 'deadletterqueue-name' with your DLQ name.
+        queue_type = "dlq"
+    else:
+        queue_type = "normal"
+    
+    if queue_type == "dlq" or action == "rollback":
+        # If the message is from the DLQ or if action is rollback, perform rollback flow.
+        next_action = "rollback"
+        next_env = PREV_ENVS.get(current_env)
+        
+        if next_env:  # Ensuring we don't send any SQS message after 'dev' rollback.
+            sqs_client.send_message(
+                QueueUrl="YOUR_NORMAL_QUEUE_URL",  # Replace with your normal SQS Queue URL.
+                MessageBody=json.dumps({
+                    "current": next_env,
+                    "action": next_action
+                })
+            )
+    else:
+        # For apply flow
+        next_action = "apply"
+        next_env = NEXT_ENVS.get(current_env)
+        
+        if next_env:  # Ensuring we don't send any SQS message after 'prod' apply.
+            sqs_client.send_message(
+                QueueUrl="YOUR_NORMAL_QUEUE_URL",  # Replace with your normal SQS Queue URL.
+                MessageBody=json.dumps({
+                    "current": next_env,
+                    "action": next_action
+                })
+            )
+```
