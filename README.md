@@ -5622,3 +5622,47 @@ with TerraformRunner('./builds/base', target_creds) as tf:
 with TerraformRunner('./builds/pipeline', target_creds) as tf:
     process_environments(tf, tf.working_dir, input_data, environments)
 ```
+```
+import json
+import boto3
+
+def lambda_handler(event: Dict, context: Any) -> None:
+    # Assuming you've set up the boto3 SQS client at the top of your script
+    sqs = boto3.client('sqs')
+    sqs_queue_url = 'YOUR_SQS_QUEUE_URL'  # Replace this with your SQS Queue URL
+
+    PREV_ENVS = {'dev': None, 'preprod': 'dev', 'prod': 'preprod'}
+    NEXT_ENVS = {'dev': 'preprod', 'preprod': 'prod', 'prod': None}
+
+    # Extract payload
+    if event.get('Records'):
+        payload = json.loads(event['Records'][0]['body'])
+        current_env = payload['current']
+        current_env_config = payload['environments'][current_env]
+        account_id = current_env_config['account_id']
+        
+        # ... Your existing processing code ...
+
+        try:
+            # ... Your Terraform processing code ...
+
+            # If processing completes without errors, send success message
+            success_payload = payload.copy()
+            success_payload['current'] = NEXT_ENVS[current_env]
+            success_payload['action'] = 'apply'
+            sqs.send_message(QueueUrl=sqs_queue_url, MessageBody=json.dumps(success_payload))
+
+        except Exception as e:
+            # If there's an error, send failure message
+            failure_payload = payload.copy()
+            failure_payload['current'] = current_env
+            failure_payload['action'] = 'rollback'
+            sqs.send_message(QueueUrl=sqs_queue_url, MessageBody=json.dumps(failure_payload))
+            print(f"Error occurred: {str(e)}")
+
+        finally:
+            # Optional: Logging or any cleanup activities can be added here
+            print(os.getcwd())
+            print(os.listdir('/tmp'))
+            return
+```
