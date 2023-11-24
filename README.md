@@ -5724,3 +5724,55 @@ def lambda_handler(event: Dict, context: Any) -> None:
                 })
             )
 ```
+
+resource "aws_sfn_state_machine" "example_state_machine" {
+  name     = "example_state_machine"
+  role_arn = aws_iam_role.step_function_role.arn
+
+  definition = <<EOF
+{
+  "Comment": "A state machine to automate pipeline deployments across environments with retry and rollback.",
+  "StartAt": "DeployDev",
+  "States": {
+    "DeployDev": {
+      "Type": "Task",
+      "Resource": "${aws_lambda_function.deploy_dev.arn}",
+      "Next": "DeployPreProd",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "RollbackFlow"
+        }
+      ]
+    },
+    "DeployPreProd": {
+      "Type": "Task",
+      "Resource": "${aws_lambda_function.deploy_preprod.arn}",
+      "Next": "DeployProd"
+    },
+    "DeployProd": {
+      "Type": "Task",
+      "Resource": "${aws_lambda_function.deploy_prod.arn}",
+      "End": true
+    },
+    "RollbackFlow": {
+      "Type": "Task",
+      "Resource": "${aws_lambda_function.rollback_lambda.arn}",
+      "End": true
+    }
+  }
+}
+EOF
+
+  depends_on = [
+    aws_iam_role_policy.step_function_policy
+  ]
+}
