@@ -5776,3 +5776,98 @@ EOF
     aws_iam_role_policy.step_function_policy
   ]
 }
+
+```
+```
+import boto3
+import json
+import os
+from typing import Any, Dict
+from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
+from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.utilities.data_classes import event_source, APIGatewayProxyEvent
+from aws_lambda_powertools.utilities.parser import parse, ValidationError
+from aws_lambda_powertools.utilities.typing import LambdaContext
+
+# Environment variables
+CURRENT_REGION = os.getenv('AWS_REGION')
+APP_TABLE_NAME = os.getenv('APP_TABLE_NAME', 'release_orchestration_app')
+STEP_FUNCTION_ARN = os.getenv('STEP_FUNCTION_ARN')  # Add this to your environment variables
+
+# AWS Lambda Powertools
+tracer = Tracer()
+logger = Logger()
+
+# Models for input and response
+class UpdateRequest(BaseModel):
+    github_repo_url: str
+
+class LambdaProxyResponse(BaseModel):
+    statusCode: int
+    body: str
+    isBase64Encoded: Optional[bool] = False
+    headers: Optional[Dict] = None
+
+class SuccessResponse(LambdaProxyResponse):
+    statusCode: Optional[int] = 200
+    body: Optional[str] = 'Success'
+
+class FailedResponse(LambdaProxyResponse):
+    pass
+
+# DynamoDB Base Class
+class DDBBaseClass:
+    def __init__(self, table: str, region: str, session: boto3.session.Session):
+        self.dynamodb = session.resource('dynamodb', region_name=region)
+        self.table = self.dynamodb.Table(table)
+
+    def query_by_github_repo_url(self, github_repo_url: str) -> Any:
+        try:
+            resp = self.table.query(
+                IndexName='GithubRepoUrlIndex',  # Assuming you have a GSI for github_repo_url
+                KeyConditionExpression=Key('github_repo_url').eq(github_repo_url)
+            )
+            return resp['Items']
+        except ClientError as e:
+            logger.error(f'Error querying item: {e}')
+            raise
+
+# Lambda handler
+@logger.inject_lambda_context(clear_state=True)
+@event_source(data_class=APIGatewayProxyEvent)
+def lambda_handler(event: APIGatewayProxyEvent, context: LambdaContext) -> Dict:
+    logger.debug(f'event: {event}')
+    logger.debug(f'context: {context}')
+
+    try:
+        data: UpdateRequest = parse(model=UpdateRequest, event=event.json_body)
+        logger.info('Validated user input successfully')
+    except ValidationError as e:
+        logger.info(f'User input validation error: {str(e)}, {event}')
+        return FailedResponse(statusCode=400, body='Invalid Request').dict()
+
+    session = boto3.session.Session()
+    app = DDBBaseClass(table=APP_TABLE_NAME, region=CURRENT_REGION, session=session)
+
+    try:
+        items = app.query_by_github_repo_url(github_repo_url=data.github_repo_url)
+        if not items:
+            return FailedResponse(statusCode=404, body='Pipeline not found').dict()
+    except Exception as e:
+        logger.error(f'Error querying pipeline: "{str(e)}"')
+        return FailedResponse(statusCode=500, body='Internal Error').dict()
+
+    step_function_client = session.client('stepfunctions')
+    try:
+        response = step_function_client.start_execution(
+            stateMachineArn=STEP_FUNCTION_ARN,
+            input=json.dumps(items[0])  # Using the first item found as input
+        )
+        logger.info(f'Step Function triggered successfully: {response}')
+    except ClientError as e:
+        logger.error(f'Error triggering Step Function: {e}')
+        return FailedResponse(statusCode=500, body='Internal Error').dict()
+
+    return SuccessResponse(body='Pipeline update process initiated').dict()
+```
