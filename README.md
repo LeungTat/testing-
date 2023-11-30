@@ -5871,3 +5871,73 @@ def lambda_handler(event: APIGatewayProxyEvent, context: LambdaContext) -> Dict:
 
     return SuccessResponse(body='Pipeline update process initiated').dict()
 ```
+
+```
+{
+  "Comment": "A State Machine to orchestrate pipeline updates across environments using app_worker",
+  "StartAt": "UpdateDevEnvironment",
+  "States": {
+    "UpdateDevEnvironment": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:app_worker",
+      "InputPath": "$",
+      "ResultPath": "$.devResult",
+      "Next": "UpdatePreprodEnvironment",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ]
+    },
+    "UpdatePreprodEnvironment": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:app_worker",
+      "Parameters": {
+        "eim_id.$": "$.eim_id",
+        "environments.$": "$.environments",
+        "github_repo_url.$": "$.github_repo_url",
+        "pipeline_name.$": "$.pipeline_name",
+        "current": "preprod",
+        "action": "apply"
+      },
+      "InputPath": "$",
+      "ResultPath": "$.preprodResult",
+      "Next": "UpdateProdEnvironment",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ]
+    },
+    "UpdateProdEnvironment": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:app_worker",
+      "Parameters": {
+        "eim_id.$": "$.eim_id",
+        "environments.$": "$.environments",
+        "github_repo_url.$": "$.github_repo_url",
+        "pipeline_name.$": "$.pipeline_name",
+        "current": "prod",
+        "action": "apply"
+      },
+      "InputPath": "$",
+      "ResultPath": "$.prodResult",
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ]
+    }
+  }
+}
+```
