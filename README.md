@@ -5987,3 +5987,40 @@ class TestCidrManagerDelete(unittest.TestCase):
         self.assertTrue('AWS Error' in str(context.exception))
 
 ```
+
+```
+class TestLambdaHandler(unittest.TestCase):
+
+    @patch("lambda_code.cidr_manager_delete.cidr_blocks_remover")
+    def test_lambda_handler_success(self, mock_remover):
+        mock_remover.return_value = "Your CIDR block has been removed"
+        event = {"pathParameters": {"id": "1"}}
+        context = {}
+        response = cidr_manager_delete.lambda_handler(event, context)
+        self.assertEqual(response["statusCode"], 200)
+        self.assertIn("Your CIDR block has been removed", response["body"])
+
+    @patch("lambda_code.cidr_manager_delete.cidr_blocks_remover")
+    def test_lambda_handler_cidr_not_exist(self, mock_remover):
+        mock_remover.return_value = None
+        event = {"pathParameters": {"id": "1"}}
+        context = {}
+        response = cidr_manager_delete.lambda_handler(event, context)
+        self.assertEqual(response["statusCode"], 400)
+        self.assertIn("This CIDR ID does not exist in CMP", response["body"])
+
+    def test_lambda_handler_invalid_trigger(self):
+        event = {"wrongKey": "noPathParameters"}
+        context = {}
+        response = cidr_manager_delete.lambda_handler(event, context)
+        self.assertEqual(response["statusCode"], 500)
+        self.assertIn("Invalid trigger", response["body"])
+
+    @patch("lambda_code.cidr_manager_delete.cidr_blocks_remover")
+    def test_lambda_handler_exception(self, mock_remover):
+        mock_remover.side_effect = Exception("Unexpected Error")
+        event = {"pathParameters": {"id": "1"}}
+        context = {}
+        with self.assertRaises(Exception):
+            cidr_manager_delete.lambda_handler(event, context)
+```
