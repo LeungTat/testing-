@@ -5941,3 +5941,49 @@ def lambda_handler(event: APIGatewayProxyEvent, context: LambdaContext) -> Dict:
   }
 }
 ```
+
+```
+class TestCidrManagerDelete(unittest.TestCase):
+
+    @patch("boto3.client")
+    def test_delete_cidr_id(self, mocker_boto3_client):
+        # ... existing test ...
+
+    @patch("boto3.client")
+    def test_invoke_payload(self, mocker_boto3_client):
+        # Test if the correct payload is sent to AWS Lambda
+        method = "DELETE"
+        endpoint = "cidr_blocks"
+        cidr_id = "1"
+        expected_payload = json.dumps({"method": method, "endpoint": f"{endpoint}/{cidr_id}"})
+
+        cidr_manager_delete.cidr_blocks_remover(method, endpoint, cidr_id)
+        args, kwargs = mocker_boto3_client.return_value.invoke.call_args
+        actual_payload = kwargs['Payload']
+        self.assertEqual(expected_payload, actual_payload)
+
+    @patch.dict(os.environ, {'CMP_RELAY_FUNCTION_ARN': ''})
+    def test_missing_function_arn(self):
+        # Test behavior when the CMP_RELAY_FUNCTION_ARN is not set
+        with self.assertRaises(KeyError):
+            cidr_manager_delete.cidr_blocks_remover("DELETE", "cidr_blocks", "1")
+
+    @patch("boto3.client")
+    def test_non_200_response(self, mocker_boto3_client):
+        # Test handling of non-200 response from the relay function
+        mocker_boto3_client.return_value.invoke.return_value = {
+            "StatusCode": 400,
+            "Payload": json.dumps({"error": "Bad Request"})
+        }
+        response = cidr_manager_delete.cidr_blocks_remover("DELETE", "cidr_blocks", "1")
+        self.assertIn('error', response)
+
+    @patch("boto3.client")
+    def test_boto3_invoke_exception(self, mocker_boto3_client):
+        # Test exception handling for boto3 invocation
+        mocker_boto3_client.return_value.invoke.side_effect = Exception("AWS Error")
+        with self.assertRaises(Exception) as context:
+            cidr_manager_delete.cidr_blocks_remover("DELETE", "cidr_blocks", "1")
+        self.assertTrue('AWS Error' in str(context.exception))
+
+```
