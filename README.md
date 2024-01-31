@@ -6024,3 +6024,10 @@ class TestLambdaHandler(unittest.TestCase):
         with self.assertRaises(Exception):
             cidr_manager_delete.lambda_handler(event, context)
 ```
+
+
+
+```
+aws s3api list-object-versions --bucket 557000580271-tf-state --prefix release-orchestration/pipelines/repo_test_dev_RO/terraform.tfstate
+aws s3api copy-object --bucket 557000580271-tf-state --copy-source "557000580271-tf-state/release-orchestration/pipelines/repo_test_dev_RO/terraform.tfstate?versionId=EXAMPLEpreviousVersionId123" --key release-orchestration/pipelines/repo_test_dev_RO/terraform.tfstate
+```
