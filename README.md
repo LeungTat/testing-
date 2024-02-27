@@ -6031,3 +6031,33 @@ class TestLambdaHandler(unittest.TestCase):
 aws s3api list-object-versions --bucket 557000580271-tf-state --prefix release-orchestration/pipelines/repo_test_dev_RO/terraform.tfstate
 aws s3api copy-object --bucket 557000580271-tf-state --copy-source "557000580271-tf-state/release-orchestration/pipelines/repo_test_dev_RO/terraform.tfstate?versionId=EXAMPLEpreviousVersionId123" --key release-orchestration/pipelines/repo_test_dev_RO/terraform.tfstate
 ```
+
+
+```
+import jwt
+import requests
+
+# This URL is specific to Azure AD and may vary depending on the environment
+metadata_url = 'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration'
+metadata = requests.get(metadata_url).json()
+jwks_uri = metadata['jwks_uri']
+
+# Retrieve the JWKS (JSON Web Key Set) keys
+jwks = requests.get(jwks_uri).json()
+
+# Assuming you have an access token
+access_token = 'your_access_token'
+
+# Decode the JWT without verification just to read the kid (Key ID)
+unverified_header = jwt.get_unverified_header(access_token)
+
+# Find the key in the JWKS that matches the Key ID in the token's header
+signing_key = next((key for key in jwks['keys'] if key['kid'] == unverified_header['kid']), None)
+
+if signing_key:
+    # Now verify the token's signature and claims
+    decoded_token = jwt.decode(access_token, signing_key, algorithms=["RS256"], audience="your_audience", issuer="https://login.microsoftonline.com/{tenant_id}/v2.0")
+    print("Token is valid.")
+else:
+    print("Valid signing key not found.")
+```
