@@ -6061,3 +6061,21 @@ if signing_key:
 else:
     print("Valid signing key not found.")
 ```
+
+```
+function decodeJWT(token) {
+    const base64UrlToBase64 = input => input.replace(/-/g, '+').replace(/_/g, '/');
+    const base64Decode = input => decodeURIComponent(atob(input).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+
+    const parts = token.split('.');
+    const header = JSON.parse(base64Decode(base64UrlToBase64(parts[0])));
+    const payload = JSON.parse(base64Decode(base64UrlToBase64(parts[1])));
+
+    return { header, payload };
+}
+
+// Example usage:
+const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvZSBCbG9nZ3MiLCJpYXQiOjE1MTYyMzkwMjJ9.______'; // Provide a real token
+const decoded = decodeJWT(token);
+console.log(decoded);
+```
