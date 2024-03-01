@@ -6137,3 +6137,6 @@ else:
     print("Valid signing key not found.")
 
 ```
+```
+pip install PyJWT requests cryptography
+```
