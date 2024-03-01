@@ -6079,3 +6079,61 @@ const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwi
 const decoded = decodeJWT(token);
 console.log(decoded);
 ```
+
+
+
+```
+import jwt
+import requests
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+from jwt.algorithms import RSAAlgorithm
+
+# Retrieve OpenID configuration and JWKS
+metadata_url = 'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration'
+metadata = requests.get(metadata_url).json()
+jwks_uri = metadata['jwks_uri']
+jwks = requests.get(jwks_uri).json()
+
+# Assuming you have an access token
+access_token = 'your_access_token_here'
+
+# Decode the JWT without verification to get the header
+unverified_header = jwt.get_unverified_header(access_token)
+
+# Function to convert JWK to PEM format
+def jwk_to_pem(jwk):
+    public_numbers = RSAAlgorithm.from_jwk(jwk)
+    public_key = public_numbers.public_key(default_backend())
+    pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return pem
+
+# Find the JWK that matches the Key ID (kid) from the token header
+signing_jwk = next((key for key in jwks['keys'] if key['kid'] == unverified_header['kid']), None)
+
+if signing_jwk:
+    pem_key = jwk_to_pem(signing_jwk)
+    
+    # Verify the token's signature with the PEM key
+    try:
+        decoded_token = jwt.decode(access_token, pem_key, algorithms=["RS256"], audience="your_audience_here", issuer="https://login.microsoftonline.com/{tenant_id}/v2.0")
+        
+        # Check for indications of Client Credentials flow
+        if 'sub' not in decoded_token or decoded_token.get('azp') == decoded_token.get('sub'):
+            print("Token might be from Client Credentials flow.")
+        else:
+            print("Token does not appear to be from Client Credentials flow.")
+        
+        print("Token is valid.")
+    except jwt.ExpiredSignatureError:
+        print("Token has expired.")
+    except jwt.InvalidTokenError:
+        print("Token is invalid.")
+else:
+    print("Valid signing key not found.")
+
+```
