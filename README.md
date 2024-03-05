@@ -6201,3 +6201,35 @@ access_token = "your_access_token_here"  # The JWT token you want to verify
 is_valid, message = validate_token(access_token, audience, issuer)
 print(message)
 ```
+
+```
+from jira import JIRA
+
+# Connect to the first Jira domain
+jira1 = JIRA(basic_auth=('username1', 'password1'), server='https://jira.domain1.com')
+
+# Fetch the issue from the first domain
+issue = jira1.issue('ISSUE-KEY1')
+
+# Assuming the link is in the issue description or a custom field, extract that information
+# This step might vary depending on how the link is stored
+linked_issue_key = extract_linked_issue_key(issue)
+
+# Connect to the second Jira domain
+jira2 = JIRA(basic_auth=('username2', 'password2'), server='https://jira.domain2.com')
+
+# Fetch the linked issue from the second domain
+linked_issue = jira2.issue(linked_issue_key)
+
+# Function to extract linked issue key (implement based on your issue link storage)
+def extract_linked_issue_key(issue):
+    # Example: Extracting from issue links
+    for link in issue.fields.issuelinks:
+        if hasattr(link, "outwardIssue"):
+            outward_issue = link.outwardIssue
+            return outward_issue.key
+        elif hasattr(link, "inwardIssue"):
+            inward_issue = link.inwardIssue
+            return inward_issue.key
+    return None
+```
