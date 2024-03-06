@@ -6233,3 +6233,63 @@ def extract_linked_issue_key(issue):
             return inward_issue.key
     return None
 ```
+```
+import requests
+import jwt
+from jwt.algorithms import RSAAlgorithm
+
+def fetch_metadata_and_jwks(metadata_url):
+    try:
+        metadata_response = requests.get(metadata_url)
+        metadata_response.raise_for_status()  # Raises HTTPError for bad responses
+        metadata = metadata_response.json()
+        jwks_response = requests.get(metadata['jwks_uri'])
+        jwks_response.raise_for_status()
+        return metadata, jwks_response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching metadata or JWKS: {e}")
+        return None, None
+
+def jwk_to_pem(jwk):
+    return RSAAlgorithm.from_jwk(jwk)
+
+def validate_token(access_token, audience, issuer):
+    metadata_url = 'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration'
+    metadata, jwks = fetch_metadata_and_jwks(metadata_url)
+    
+    if not metadata or not jwks:
+        return False, "Failed to fetch metadata or JWKS."
+
+    try:
+        unverified_header = jwt.get_unverified_header(access_token)
+    except jwt.InvalidTokenError as e:
+        return False, f"Error decoding token header: {str(e)}"
+
+    signing_jwk = next((key for key in jwks['keys'] if key['kid'] == unverified_header['kid']), None)
+    if not signing_jwk:
+        return False, "Valid signing key not found."
+
+    pem_key = jwk_to_pem(signing_jwk)
+    
+    try:
+        decoded_token = jwt.decode(access_token, pem_key, algorithms=["RS256"], audience=audience, issuer=issuer)
+        # Check for client credentials flow
+        if 'sub' in decoded_token and decoded_token['sub'] == decoded_token.get('azp'):
+            print("Token might be from Client Credentials flow.")
+        else:
+            print("Token likely not from Client Credentials flow.")
+        
+        return True, "Token is valid."
+    except jwt.ExpiredSignatureError:
+        return False, "Token has expired."
+    except jwt.InvalidTokenError as e:
+        return False, f"Token is invalid: {str(e)}"
+
+# Example usage
+audience = "your_audience_here"  # Set your API's audience value
+issuer = "https://login.microsoftonline.com/{tenant_id}/v2.0"  # Replace {tenant_id} with your Azure AD tenant ID
+access_token = "your_access_token_here"  # The JWT token you want to verify
+
+is_valid, message = validate_token(access_token, audience, issuer)
+print(message)
+```
