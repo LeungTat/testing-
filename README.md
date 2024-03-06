@@ -6293,3 +6293,41 @@ access_token = "your_access_token_here"  # The JWT token you want to verify
 is_valid, message = validate_token(access_token, audience, issuer)
 print(message)
 ```
+```
+import jwt
+import requests
+
+# Token obtained from client credentials flow
+token = "YOUR_TOKEN_HERE"
+
+# Azure AD issuer and JWKs URI
+issuer = "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0"
+jwks_uri = issuer + "/discovery/v2.0/keys"
+
+# Fetch Azure AD signing keys
+jwks = requests.get(jwks_uri).json()
+
+# Function to find the signing key
+def get_signing_key(jwks, kid):
+    for key in jwks['keys']:
+        if key['kid'] == kid:
+            return key
+    return None
+
+# Decode token header to find the 'kid' without verification
+unverified_header = jwt.get_unverified_header(token)
+kid = unverified_header['kid']
+
+# Get the signing key
+signing_key = get_signing_key(jwks, kid)
+
+# Verify and decode the token
+# Note: Add exception handling for production code
+decoded_token = jwt.decode(token, signing_key, algorithms=["RS256"], audience="YOUR_API_AUDIENCE", issuer=issuer)
+
+# Check if the token is from client credentials flow
+if decoded_token.get('idtyp') == 'app':
+    print("Token is from client credentials flow.")
+else:
+    print("Token is not from client credentials flow.")
+```
