@@ -6331,3 +6331,127 @@ if decoded_token.get('idtyp') == 'app':
 else:
     print("Token is not from client credentials flow.")
 ```
+```
+import boto3
+import json
+import logging
+import os
+import requests
+from botocore.exceptions import ClientError
+from http import HTTPStatus
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class SecretManager:
+    def __init__(self, region):
+        self.session = boto3.session.Session()
+        self.client = self.session.client(service_name='secretsmanager', region_name=region)
+    
+    def get_secret(self, secret_name):
+        try:
+            get_secret_value_response = self.client.get_secret_value(SecretId=secret_name)
+            if 'SecretString' in get_secret_value_response:
+                logger.info(f'Successfully retrieved secret for {secret_name}')
+                return get_secret_value_response['SecretString']
+        except ClientError as e:
+            logger.error(f'Error retrieving secret {secret_name}, exception: {e.response["Error"]["Code"]}')
+            raise e
+
+class OAuthHandler:
+    def __init__(self, client_id, secret_manager):
+        self.client_id = client_id
+        self.secret_manager = secret_manager
+
+    def build_response(self, status_code, body, message=None):
+        response = {
+            "statusCode": status_code,
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Credentials': 'true',
+                'Content-Type': 'application/json'
+            },
+            "body": json.dumps(body)
+        }
+        if message:
+            response["body"] = json.dumps({"Message": message})
+        logger.info(f'Building response with status code {status_code}')
+        return response
+    
+    def handle_ropc_flow(self, username, password, scope):
+        if not username or not password:
+            logger.warning('Missing username or password for ROPC flow')
+            return self.build_response(HTTPStatus.BAD_REQUEST, {}, 'Missing username or password')
+        
+        logger.info(f'Handling ROPC flow for user {username}')
+        client_secret = self.secret_manager.get_secret(secret_key_name)
+        token_url = "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+        data = {
+            "grant_type": "password",
+            "client_id": self.client_id,
+            "client_secret": client_secret,
+            "username": username,
+            "password": password,
+            "scope": scope
+        }
+
+        try:
+            response = requests.post(token_url, data=data)
+            logger.info('Successfully obtained token via ROPC flow')
+            return self.build_response(HTTPStatus.OK, response.json())
+        except requests.RequestException as e:
+            logger.error(f'Error fetching token via ROPC flow: {str(e)}')
+            return self.build_response(HTTPStatus.INTERNAL_SERVER_ERROR, {}, "Error fetching token")
+
+    def handle_client_credentials_flow(self, scope):
+        logger.info('Handling client credentials flow')
+        client_secret = self.secret_manager.get_secret(secret_key_name)
+
+        data = {
+            'grant_type': 'client_credentials',
+            'client_id': self.client_id,
+            'client_secret': client_secret,
+            'scope': scope
+        }
+
+        token_url = "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+        try:
+            response = requests.post(token_url, data=data)
+            logger.info('Successfully obtained token via client credentials flow')
+            return self.build_response(HTTPStatus.OK, response.json())
+        except requests.RequestException as e:
+            logger.error(f'Error fetching token via client credentials flow: {str(e)}')
+            return self.build_response(HTTPStatus.INTERNAL_SERVER_ERROR, {}, "Error fetching token")
+
+def lambda_handler(event, context):
+    secret_key_name = os.environ.get('SECRET_KEY_NAME')
+    client_id = os.environ.get('CLIENT_ID')
+    aws_region = os.environ.get('REGION')
+
+    secret_manager = SecretManager(aws_region)
+    oauth_handler = OAuthHandler(client_id, secret_manager)
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+        grant_type = body.get('grant_type')
+        scope = body.get('scope', 'openid')  # Default scope for ROPC if not provided
+
+        logger.info(f'Received Lambda invocation with grant_type: {grant_type}')
+
+        if grant_type == 'password':
+            username = body.get('username')
+            password = body.get('password')
+            return oauth_handler.handle_ropc_flow(username, password, scope)
+        elif grant_type == 'client_credentials':
+            if not scope:
+                logger.warning('Missing scope for client_credentials grant type')
+                return oauth_handler.build_response(HTTPStatus.BAD_REQUEST, {}, 'Scope is required for client_credentials grant type')
+            return oauth_handler.handle_client_credentials_flow(scope)
+        else:
+            logger.error('Invalid grant type received')
+            return oauth_handler.build_response(HTTPStatus.BAD_REQUEST, {}, 'Invalid grant type')
+    except Exception as e:
+        logger.error(f'Unknown error occurred in lambda_handler: {str(e)}')
+        return oauth_handler.build_response(HTTPStatus.INTERNAL_SERVER_ERROR, {}, "Internal error")
+```
