@@ -6660,3 +6660,118 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[Any, Any]:
         authResponse = policy.build()
         return authResponse
 ```
+```
+import logging
+import os
+import requests
+import jwt
+from jwt.algorithms import RSAAlgorithm
+from authorizer_library.event_processor import EventProcessor
+from authorizer_library.utils import AuthUtils
+from authorizer_library.auth_policy import AuthPolicy
+from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+aws_region = os.environ.get('REGION')
+read_account_meta_data_target_adlds = os.environ['Read_Account_META_DATA_TARGET_ADLDs']
+metadata_url = 'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration'
+
+# Function to fetch JWKS
+def fetch_jwks(jwks_uri):
+    jwks_response = requests.get(jwks_uri)
+    jwks_response.raise_for_status()
+    return jwks_response.json()
+
+# Function to convert JWK to PEM
+def jwk_to_pem(jwk):
+    return RSAAlgorithm.from_jwk(jwk)
+
+# Function to find signing key in JWKS
+def find_signing_key(jwks, kid):
+    return next((key for key in jwks['keys'] if key['kid'] == kid), None)
+
+# Function to validate tokens specifically from the Client Credentials flow
+def validate_token(access_token, audience, issuer, expected_appid):
+    metadata = requests.get(metadata_url).json()
+    jwks = fetch_jwks(metadata['jwks_uri'])
+    unverified_header = jwt.get_unverified_header(access_token)
+    signing_jwk = find_signing_key(jwks, unverified_header['kid'])
+    if not signing_jwk:
+        return False, "Valid signing key not found."
+    pem_key = jwk_to_pem(signing_jwk)
+
+    try:
+        decoded_token = jwt.decode(
+            access_token, pem_key, algorithms=["RS256"], 
+            audience=audience, issuer=issuer
+        )
+        if decoded_token.get('aud') == audience:
+            logger.info("Token might be from Client Credentials flow.")
+        if decoded_token.get('appid') == expected_appid:
+            logger.info("Token appid matches expected appid.")
+        else:
+            return False, "Token appid does not match expected appid."
+        return True, "Token is valid."
+    except jwt.ExpiredSignatureError:
+        return False, "Token has expired."
+    except jwt.InvalidTokenError as e:
+        return False, f"Token is invalid: {str(e)}"
+
+# PolicyDispatcher with logic to process account id and dispatch accordingly
+class PolicyDispatcher:
+    def __init__(self, policy: AuthPolicy, event: Dict[str, Any]):
+        self.policy = policy
+        self.event = event
+        self.dispatch_table: Dict[Any, Callable[[], None]] = {
+            ("/aws_account_id", "GET", "jwt"): self.process_account_id,
+        }
+
+    def process_account_id(self) -> None:
+        self.account_number = self.event['pathParameters']['aws_account_id']
+        self.access_token = self.event['headers']['authorizationToken']
+
+        unverified_claims = jwt.decode(self.access_token, options={"verify_signature": False})
+        intended_audience = "your_intended_audience_for_client_credentials_flow"
+        if 'aud' in unverified_claims and unverified_claims['aud'] == intended_audience:
+            audience = intended_audience
+            issuer = "https://login.microsoftonline.com/{tenant_id}/v2.0"
+            expected_appid = "your_application_id_here"
+            is_valid, message = validate_token(self.access_token, audience, issuer, expected_appid)
+            if not is_valid:
+                logger.error(message)
+                self.policy.denyAllMethods()
+                return
+
+        self.user_transitive_groups = AuthUtils.get_user_transitive_groups(self.access_token)
+        read_account_meta_data_target_permission = AuthUtils.filter_user_groups(
+            self.user_transitive_groups, read_account_meta_data_target_adlds)
+        filtered_aws_account_list = AuthUtils.aws_account_filter(
+            self.user_transitive_groups, ['Readonly', 'AppDevOps', 'InfraDevOps'])
+        if self.account_number in filtered_aws_account_list and read_account_meta_data_target_permission:
+            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+    def dispatch(self, resource: str, verb: str, auth_method: str) -> None:
+        function = self.dispatch_table.get((resource, verb, auth_method))
+        if function:
+            function()
+        else:
+            self.policy.denyAllMethods()
+
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[Any, Any]:
+    try:
+        processor = EventProcessor(event)
+        policy = processor.get_policy()
+        dispatcher = PolicyDispatcher(policy, event)
+        dispatcher.dispatch(processor.get_resource(), processor.get_verb(), processor.get_auth_method())
+        authResponse = dispatcher.policy.build()
+        return authResponse
+    except Exception as e:
+        logger.error(e)
+        policy.denyAllMethods()
+        authResponse = policy.build()
+        return authResponse
+```
