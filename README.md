@@ -6893,3 +6893,83 @@ def lambda_handler(event, context):
         authResponse = policy.build()
         return authResponse
 ```
+```
+openapi: 3.0.0
+info:
+  title: Example API
+  version: 1.0.0
+paths:
+  /token:
+    post:
+      summary: Get token
+      operationId: getToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/PasswordGrantType'
+                - $ref: '#/components/schemas/ClientCredentialsGrantType'
+            examples:
+              passwordGrantType:
+                summary: An example for password grant type
+                value: 
+                  grant_type: password
+                  username: user
+                  password: pass
+              clientCredentialsGrantType:
+                summary: An example for client credentials grant type
+                value:
+                  grant_type: client_credentials
+                  client_id: yourClientId
+                  client_secret: yourClientSecret
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+components:
+  schemas:
+    PasswordGrantType:
+      type: object
+      required:
+        - grant_type
+        - username
+        - password
+      properties:
+        grant_type:
+          type: string
+          enum: [password]
+        username:
+          type: string
+        password:
+          type: string
+    ClientCredentialsGrantType:
+      type: object
+      required:
+        - grant_type
+        - client_id
+        - client_secret
+      properties:
+        grant_type:
+          type: string
+          enum: [client_credentials]
+        client_id:
+          type: string
+        client_secret:
+          type: string
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+        scope:
+          type: string
+```
