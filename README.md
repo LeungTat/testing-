@@ -6973,3 +6973,25 @@ components:
         scope:
           type: string
 ```
+```
+# Function to parse date strings and remove timezone, adjusted to handle milliseconds
+def parse_dates_with_milliseconds(dates):
+    # Parse each date string and remove the timezone part
+    parsed_dates = []
+    for date_str in dates:
+        # Split the timezone if it exists and take only the datetime part
+        date_str = date_str.split('+')[0]
+        # Check if the datetime string contains milliseconds
+        if '.' in date_str:
+            format_str = "%Y-%m-%dT%H:%M:%S.%f"
+        else:
+            format_str = "%Y-%m-%dT%H:%M:%S"
+        # Parse the datetime object
+        parsed_date = datetime.strptime(date_str, format_str)
+        parsed_dates.append(parsed_date)
+    return parsed_dates
+
+# Parse the example date strings
+parsed_dates = parse_dates_with_milliseconds(date_strings)
+parsed_dates
+```
