@@ -6995,3 +6995,44 @@ def parse_dates_with_milliseconds(dates):
 parsed_dates = parse_dates_with_milliseconds(date_strings)
 parsed_dates
 ```
+```
+resource "aws_security_group" "codewhisperer_sg" {
+  name        = "codewhisperer-connection"
+  description = "Security Group for AWS CodeWhisperer"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["128.0.0.0/2", "10.0.0.0/8"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "CodeWhisperer Security Group"
+    ... # add other tags as needed
+  }
+}
+```
+```
+resource "aws_vpc_endpoint" "codewhisperer" {
+  vpc_id             = module.vpc.vpc_id
+  service_name       = "com.amazonaws.us-east-1.codewhisperer"
+  vpc_endpoint_type  = "Interface"
+  security_group_ids = [aws_security_group.codewhisperer_sg.id]
+  subnet_ids         = [for subnet in module.vpc.private_subnets: subnet if element(split("-", subnet), 2) == "us-east-1"] # Assuming subnet naming includes region
+
+  private_dns_enabled = true
+  tags = {
+    Name = "CodeWhisperer VPC Endpoint"
+    ... # add other tags as needed
+  }
+}
+```
