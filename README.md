@@ -7036,3 +7036,20 @@ resource "aws_vpc_endpoint" "codewhisperer" {
   }
 }
 ```
+```
+resource "aws_vpc_endpoint" "codewhisperer" {
+  count = var.aws_region == "us-east-1" ? 1 : 0
+
+  vpc_id             = module.vpc.vpc_id
+  service_name       = "com.amazonaws.us-east-1.<codewhisperer_service_name>"
+  vpc_endpoint_type  = "Interface"  # or 'Gateway', depending on the service
+  subnet_ids         = module.vpc.private_subnets  # Assuming you want to place it in private subnets
+
+  security_group_ids = [aws_security_group.your_security_group.id]  # Replace with your actual security group
+
+  private_dns_enabled = true
+  tags = var.tags
+}
+
+This seem better the above
+```
