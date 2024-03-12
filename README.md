@@ -7095,3 +7095,45 @@ resource "aws_vpc_endpoint" "codewhisperer" {
   tags = var.tags
 }
 ```
+```
+resource "aws_security_group" "codewhisperer_sg" {
+  vpc_id      = module.vpc.vpc_id
+  name        = "${var.vpc_name}-codewhisperer-sg"
+  description = "SG for AWS CodeWhisperer VPC Endpoint"
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["128.0.0.0/2", "10.0.0.0/8"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(
+    var.tags,
+    {
+      "Name" = "${var.vpc_name}-codewhisperer-sg"
+    },
+  )
+}
+
+resource "aws_vpc_endpoint" "codewhisperer" {
+  count = var.aws_region == "us-east-1" ? 1 : 0
+
+  vpc_id            = module.vpc.vpc_id
+  service_name      = "com.amazonaws.us-east-1.codewhisperer"
+  vpc_endpoint_type = "Interface" # Confirm whether 'Interface' or 'Gateway' is correct for CodeWhisperer
+  subnet_ids        = module.vpc.private_subnets
+
+  security_group_ids = [aws_security_group.codewhisperer_sg.id]
+
+  private_dns_enabled = true
+  tags = var.tags
+}
+```
