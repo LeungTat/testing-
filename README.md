@@ -7137,3 +7137,199 @@ resource "aws_vpc_endpoint" "codewhisperer" {
   tags = var.tags
 }
 ```
+```
+import os
+import requests
+import jwt
+import logging
+from jwt.algorithms import RSAAlgorithm
+from authorizer.library.event_processor import EventProcessor
+from authorizer.library.utils import ADUtils
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+aws_region = os.environ.get('REGION')
+check_status_target_adlds = os.environ['CHECK_STATUS_TARGET_ADLDS']
+new_account_target_adlds = os.environ['NEW_ACCOUNT_TARGET_ADLDS']
+metadata_url = 'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration'
+proxies = {'https': 'http://proxy.ssc3128'}
+
+os.environ['AUDIENCE'] = "https://gcsawsapi.gcs.euml.dev.aws.cloud.hsbc.com/onboarding"
+os.environ['ISSUER'] = "https://sts.windows.net/e0f4d344-bad6-4a97-9b02-859c472e1a92/"
+os.environ['EXPECTED_APPID'] = "a8d0e69f-5555-41c1-9205-3df273afa487"
+audience = os.environ.get('AUDIENCE')
+issuer = os.environ.get('ISSUER')
+expected_appid = os.environ.get('EXPECTED_APPID')
+
+class TokenValidator:
+    def __init__(self, proxies=None):
+        self.proxies = proxies
+
+    def fetch_jwks(self, jwks_uri):
+        """Fetches JWKS from a given URL."""
+        jwks_response = requests.get(jwks_uri, proxies=self.proxies)
+        jwks_response.raise_for_status()
+        return jwks_response.json()
+
+    def jwk_to_pem(self, jwk):
+        """Converts a JWK to PEM format."""
+        return RSAAlgorithm.from_jwk(jwk)
+
+    def find_signing_key(self, jwks, kid):
+        """Finds a signing key in JWKS by kid."""
+        return next((key for key in jwks['keys'] if key['kid'] == kid), None)
+
+    def validate_token(self, access_token, audience, issuer, expected_appid):
+        """Validates tokens specifically from the Client Credentials flow."""
+        metadata = requests.get(metadata_url, proxies=self.proxies).json()
+        jwks = self.fetch_jwks(metadata['jwks_uri'])
+        unverified_header = jwt.get_unverified_header(access_token)
+        signing_jwk = self.find_signing_key(jwks, unverified_header['kid'])
+        if not signing_jwk:
+            return False, "Valid signing key not found."
+        pem_key = self.jwk_to_pem(signing_jwk)
+        
+        try:
+            decoded_token = jwt.decode(
+                access_token, pem_key, algorithms=["RS256"],
+                audience=audience, issuer=issuer
+            )
+            if decoded_token.get('appid') == expected_appid:
+                logger.info("Token appid matches expected appid.")
+            else:
+                return False, "Token appid does not match expected appid."
+            return True, "Token is valid."
+        except jwt.ExpiredSignatureError:
+            return False, "Token has expired."
+        except jwt.InvalidTokenError as e:
+            return False, f"Token is invalid: {str(e)}"
+
+class PolicyDispatcher:
+    def __init__(self, policy, event):
+        self.policy = policy
+        self.event = event
+        self.dispatch_table = {
+            ("/status", "GET", "jwt"): self.process_status,
+            ("/update", "GET", "jwt"): self.process_update,
+            ("/new-account", "POST", "jwt"): self.process_new_account,
+        }
+
+
+    def validate_and_apply_policy(self, access_token, event, policy):
+        validator = TokenValidator(proxies=proxies)
+
+
+        unverified_claims = jwt.decode(access_token, options={"verify_signature": False})
+        # audience = "https://gcsawsapi.gcs.euml.dev.aws.cloud.hsbc.com/onboarding"
+        # issuer = "https://sts.windows.net/e0f4d344-bad6-4a97-9b02-859c472e1a92/"
+        # expected_appid = "a8d0e69f-5555-41c1-9205-3df273afa487"
+
+        if 'aud' in unverified_claims and unverified_claims['aud'] == audience:
+            is_valid, message = validator.validate_token(access_token, audience, issuer, expected_appid)
+            if not is_valid:
+                logger.error(message)
+                policy.denyAllMethods()
+            else:
+                logger.info("Token is valid and audience matches.")
+                policy.allowMethod(event["httpMethod"], event["path"])
+        else:
+            policy.denyAllMethods()
+
+
+    def process_status(self):
+        authorizationToken_header = {k.lower(): v for k, v in self.event["headers"].items() if k.lower() == "authorizationtoken"}
+        self.access_token = authorizationToken_header["authorizationtoken"]
+
+        unverified_claims = jwt.decode(self.access_token, options={"verify_signature": False})
+        audience = "https://gcsawsapi.gcs.euml.dev.aws.cloud.hsbc.com/onboarding"
+        issuer = "https://sts.windows.net/e0f4d344-bad6-4a97-9b02-859c472e1a92/"
+        expected_appid = "a8d0e69f-5555-41c1-9205-3df273afa487"
+
+        if 'aud' in unverified_claims and unverified_claims['aud'] == audience:
+            is_valid, message = validate_token(self.access_token, audience, issuer, expected_appid)
+            if not is_valid:
+                logger.error(message)
+                self.policy.denyAllMethods()
+            else:
+                logger.info("Token is valid and audience matches.")
+                self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+        # The rest of the code seems to involve user group permissions and updating access policies
+
+
+
+
+    def process_update(self):
+        authorizationToken_header = {k.lower(): v for k, v in self.event["headers"].items() if k.lower() == "authorizationtoken"}
+        self.access_token = authorizationToken_header["authorizationtoken"]
+
+        self.validate_and_apply_policy(self.access_token, self.event, self.policy)
+
+        self.user_transitive_groups = ADUtils.get_user_transitive_groups(self.access_token)
+        check_status_target_adlds_permission = ADUtils.filter_user_groups(
+            self.user_transitive_groups, check_status_target_adlds)
+        new_account_target_adlds_permission = ADUtils.filter_user_groups(
+            self.user_transitive_groups, new_account_target_adlds)
+        self.user_transitive_groups, new_account_target_adlds_permission:
+        if check_status_target_adlds_permission and new_account_target_adlds_permission:
+            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+
+
+    def process_new_account(self):
+        authorizationToken_header = {k.lower(): v for k, v in self.event["headers"].items() if k.lower() == "authorizationtoken"}
+        self.access_token = authorizationToken_header["authorizationtoken"]
+
+        unverified_claims = jwt.decode(self.access_token, options={"verify_signature": False})
+        audience = "https://gcsawsapi.gcs.euml.dev.aws.cloud.hsbc.com/onboarding"
+        issuer = "https://sts.windows.net/e0f4d344-bad6-4a97-9b02-859c472e1a92/"
+        expected_appid = "a8d0e69f-5555-41c1-9205-3df273afa487"
+
+        if 'aud' in unverified_claims and unverified_claims['aud'] == audience:
+            is_valid, message = validate_token(self.access_token, audience, issuer, expected_appid)
+            if not is_valid:
+                logger.error(message)
+                self.policy.denyAllMethods()
+            else:
+                logger.info("Token is valid and audience matches.")
+                self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+        self.user_transitive_groups = ADUtils.get_user_transitive_groups(self.access_token)
+        check_status_target_adlds_permission = ADUtils.filter_user_groups(
+            self.user_transitive_groups, check_status_target_adlds)
+        new_account_target_adlds_permission = ADUtils.filter_user_groups(
+            self.user_transitive_groups, new_account_target_adlds)
+        if check_status_target_adlds_permission and new_account_target_adlds_permission:
+            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
+        else:
+            self.policy.denyAllMethods()
+
+    def dispatch(self, resource, verb, auth_method):
+        function = self.dispatch_table.get((resource, verb, auth_method))
+        if function:
+            function()
+        else:
+            self.policy.denyAllMethods()
+
+def lambda_handler(event, context):
+        try:
+            processor = EventProcessor(event)
+            policy = processor.get_policy()
+            dispatcher = PolicyDispatcher(policy, event)
+            dispatcher.dispatch(processor.get_resource(), processor.get_verb(), processor.get_auth_method())
+            authResponse = dispatcher.policy.build()
+            return authResponse
+        except Exception as e:
+            logger.error(e)
+            policy.denyAllMethods()
+            authResponse = policy.build()
+            return authResponse
+
+```
