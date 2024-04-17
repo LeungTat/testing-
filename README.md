@@ -7333,3 +7333,27 @@ def lambda_handler(event, context):
             return authResponse
 
 ```
+
+```
+What is AWS CodeWhisperer?
+AWS CodeWhisperer is a machine learning-powered code generator developed by Amazon Web Services. It is designed to offer real-time code recommendations as developers write code, enhancing productivity and improving code quality. By analyzing existing code and associated comments, CodeWhisperer provides contextual suggestions, facilitating faster and more efficient coding.
+
+Why are we rolling out CodeWhisperer?
+The increasing reliance on AI tools in software development has led to significant demand for solutions that can enhance coding efficiency and accuracy. AWS CodeWhisperer is being introduced in response to this demand, offering developers sophisticated tools to aid in the coding process. This roll-out will help meet the needs of AWS users looking to integrate AI capabilities into their development workflows.
+
+How does AWS CodeWhisperer work?
+AWS CodeWhisperer integrates seamlessly into your coding environment. Once enabled, it operates as follows:
+
+Integration with Development Environments: CodeWhisperer can be integrated with popular Integrated Development Environments (IDEs) like Visual Studio Code, Eclipse, and IntelliJ. This integration allows CodeWhisperer to analyze code in real-time.
+
+Real-Time Code Suggestions: As you type, CodeWhisperer scans your code and offers suggestions that you can incorporate with a single click. These suggestions are generated based on a combination of machine learning models trained on a wide variety of codebases and the context provided by your current work.
+
+Authorization and Access Management: Access to CodeWhisperer is controlled through HSBC AD Group Membership. Users need to be authorized within their organizational structure to use CodeWhisperer, ensuring that access is managed securely and efficiently.
+
+How do I use CodeWhisperer?
+To get started with AWS CodeWhisperer at HSBC:
+
+Ensure Authorization: Confirm your inclusion in the HSBC AD Group that has been granted access to CodeWhisperer.
+Install the Plugin: Download and install the CodeWhisperer plugin for your IDE from the AWS Management Console.
+Start Coding: Begin coding as usual, and you’ll start seeing AI-powered suggestions. These can be accepted, modified, or ignored based on your assessment.
+```
