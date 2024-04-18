@@ -7357,3 +7357,47 @@ Ensure Authorization: Confirm your inclusion in the HSBC AD Group that has been 
 Install the Plugin: Download and install the CodeWhisperer plugin for your IDE from the AWS Management Console.
 Start Coding: Begin coding as usual, and you’ll start seeing AI-powered suggestions. These can be accepted, modified, or ignored based on your assessment.
 ```
+
+
+```
+What is GCS CodeWhisperer?
+GCS CodeWhisperer, developed by Amazon Web Services, is a cutting-edge, machine learning-powered code generator specifically tailored for internal use within the HSBC network. This private Software as a Service (SaaS) solution is not available publicly and is designed to enhance developer productivity and code quality by offering real-time code recommendations.
+
+Key Features of GCS CodeWhisperer:
+
+Security and Compliance: Deployed in a centralized AWS account managed by GCS, ensuring high standards of security compliance and consistent performance.
+Centralized Management: Simplifies service management and consumption while providing scalability to meet user demands effectively.
+Why Are We Rolling Out GCS CodeWhisperer?
+In the evolving landscape of software development, there is a growing demand for AI tools that enhance coding efficiency and precision. GCS CodeWhisperer addresses this need by providing sophisticated coding assistance to developers, facilitating the integration of AI capabilities into their development workflows. This initiative is part of our commitment to empowering our developers with the best tools available.
+
+How Does GCS CodeWhisperer Work?
+Integration and Operation:
+
+IDE Integration: GCS CodeWhisperer is compatible with popular Integrated Development Environments (IDEs) like Visual Studio Code and IntelliJ. This integration allows for real-time code analysis.
+Real-Time Code Suggestions: While coding, developers receive contextually relevant suggestions that can be implemented with a single click. These are generated from machine learning models trained on diverse codebases.
+Authorization and Access Management: Integration with HSBC's strategic Identity Provider (IDP) allows the use of existing HSBC AD credentials, streamlining access while enhancing security. Developers can request access through the SNOW portal, simplifying the onboarding process and reducing the administrative burden.
+How to Get Started with GCS CodeWhisperer?
+To begin using GCS CodeWhisperer at HSBC:
+
+Request Access: Submit a request via the SNOW portal.
+Group Membership: Once approved, your AD user will be added to a specific HSBC AD group.
+Synchronization with Azure AD: Attributes describing the group and its members will be synchronized with AWS Identity Centre.
+Service Authorization: The configuration of CodeWhisperer uses this group information to authorize access.
+For detailed instructions, please visit the Confluence page: Getting Started with GCS Codewhisperer at HSBC.
+
+
+
+How to Get Started with GCS CodeWhisperer at HSBC
+To begin using GCS CodeWhisperer at HSBC, follow these simple steps:
+
+Ensure Authorization:
+Submit a request for access via the SNOW portal. You will need to confirm your inclusion in the HSBC AD Group that has been granted access to CodeWhisperer. Ensure you have all necessary information handy, such as your employee ID and department code.
+Install the Plugin:
+Download and install the CodeWhisperer plugin from the designated source for your supported IDE (such as Visual Studio Code, IntelliJ, etc.). Installation guides and resources can be found on the Confluence page.
+Start Coding:
+Open your IDE and begin coding as usual. CodeWhisperer will start providing AI-powered suggestions that can be accepted, modified, or ignored based on your assessment.
+For detailed instructions and additional support, please visit our comprehensive guide on the Getting Started with GCS Codewhisperer at HSBC Confluence page. Should you encounter any issues or need further assistance, please contact our technical support team via HSBC IT Support.
+
+
+
+```
