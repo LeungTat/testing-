@@ -7401,3 +7401,18 @@ For detailed instructions and additional support, please visit our comprehensive
 
 
 ```
+
+```
+Generating Functions:
+CodeWhisperer can automatically generate function bodies from signatures. This feature leverages clear, descriptive function names and parameters to provide the necessary context for CodeWhisperer to implement functions. Additionally, you can use detailed code comments as prompts to guide the generation of functions that meet specific behavioral requirements.
+Writing Unit Tests:
+The tool aids significantly in accelerating the creation of unit tests. CodeWhisperer can not only generate the logic for explicit unit tests but also suggest tests for edge cases that might not be immediately apparent. This is particularly useful for ensuring comprehensive test coverage, including scenarios that may not have been initially considered.
+Creating Sample Data:
+CodeWhisperer also excels at generating sample or dummy data, which can be especially handy for testing and development purposes. By entering a simple pattern or a starting example, CodeWhisperer can continue to generate data that follows the defined pattern, helping populate databases or data structures for testing more effectively.
+
+
+How GCS CodeWhisperer Enhances Application Building
+
+
+Due to the pilot run nature of GCS CodeWhisperer, only a select group of users will be invited to participate in this initial phase.
+```
