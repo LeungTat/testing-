@@ -7416,3 +7416,175 @@ How GCS CodeWhisperer Enhances Application Building
 
 Due to the pilot run nature of GCS CodeWhisperer, only a select group of users will be invited to participate in this initial phase.
 ```
+
+```
+import unittest
+from unittest.mock import patch, MagicMock
+from botocore.exceptions import ClientError
+import requests
+from authenticate_handler import lambda_handler, SecretManager, OAuthHandler
+
+class TestLambdaHandler(unittest.TestCase):
+    @patch('os.environ', return_value={
+        'SECRET_KEY_NAME': 'test_secret_key_name',
+        'CLIENT_ID': 'test_client_id',
+        'AWS_REGION': 'test_region',
+        'CLIENT_CREDENTIALS_SCOPE': 'test_scope'
+    })
+    @patch('authenticate_handler.boto3.session.Session')
+    @patch('authenticate_handler.requests.post')
+    def test_lambda_handler_password_grant(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        mock_event = {
+            "body": '{"grant_type": "password", "username": "test_user", "password": "test_password"}'
+        }
+        mock_context = {}
+
+        mock_secrets_client = MagicMock()
+        boto_session_mock.return_value.client.return_value = mock_secrets_client
+        mock_secrets_client.get_secret_value.return_value = {'SecretString': 'test_secret'}
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {'access_token': 'test_access_token'}
+        requests_post_mock.return_value = mock_response
+
+        expected_output = {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"access_token": "test_access_token"})
+        }
+
+        actual_output = lambda_handler(mock_event, mock_context)
+
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={
+        'SECRET_KEY_NAME': 'test_secret_key_name',
+        'CLIENT_ID': 'test_client_id',
+        'AWS_REGION': 'test_region',
+        'CLIENT_CREDENTIALS_SCOPE': 'test_scope'
+    })
+    @patch('authenticate_handler.boto3.session.Session')
+    @patch('authenticate_handler.requests.post')
+    def test_lambda_handler_client_credentials_grant(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        mock_event = {
+            "body": '{"grant_type": "client_credentials", "client_secret": "test_client_secret"}'
+        }
+        mock_context = {}
+
+        mock_secrets_client = MagicMock()
+        boto_session_mock.return_value.client.return_value = mock_secrets_client
+        mock_secrets_client.get_secret_value.return_value = {'SecretString': 'test_secret'}
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {'access_token': 'test_access_token'}
+        requests_post_mock.return_value = mock_response
+
+        expected_output = {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"access_token": "test_access_token"})
+        }
+
+        actual_output = lambda_handler(mock_event, mock_context)
+
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={
+        'SECRET_KEY_NAME': 'test_secret_key_name',
+        'CLIENT_ID': 'test_client_id',
+        'AWS_REGION': 'test_region',
+        'CLIENT_CREDENTIALS_SCOPE': 'test_scope'
+    })
+    @patch('authenticate_handler.boto3.session.Session')
+    @patch('authenticate_handler.requests.post')
+    def test_lambda_handler_invalid_grant(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        mock_event = {
+            "body": '{"grant_type": "invalid_grant"}'
+        }
+        mock_context = {}
+
+        expected_output = {
+            "statusCode": 400,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"Message": "Invalid grant type"})
+        }
+
+        actual_output = lambda_handler(mock_event, mock_context)
+
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={
+        'SECRET_KEY_NAME': 'test_secret_key_name',
+        'CLIENT_ID': 'test_client_id',
+        'AWS_REGION': 'test_region',
+        'CLIENT_CREDENTIALS_SCOPE': 'test_scope'
+    })
+    @patch('authenticate_handler.boto3.session.Session')
+    @patch('authenticate_handler.requests.post')
+    def test_lambda_handler_missing_parameters(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        mock_event = {
+            "body": '{"grant_type": "password", "username": "test_user"}'
+        }
+        mock_context = {}
+
+        expected_output = {
+            "statusCode": 400,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"Message": "Missing username or password"})
+        }
+
+        actual_output = lambda_handler(mock_event, mock_context)
+
+        self.assertEqual(actual_output, expected_output)
+
+    @patch('os.environ', return_value={
+        'SECRET_KEY_NAME': 'test_secret_key_name',
+        'CLIENT_ID': 'test_client_id',
+        'AWS_REGION': 'test_region',
+        'CLIENT_CREDENTIALS_SCOPE': 'test_scope'
+    })
+    @patch('authenticate_handler.boto3.session.Session')
+    @patch('authenticate_handler.requests.post')
+    def test_lambda_handler_client_error(self, requests_post_mock, boto_session_mock, os_environ_mock):
+        mock_event = {
+            "body": '{"grant_type": "password", "username": "test_user", "password": "test_password"}'
+        }
+        mock_context = {}
+
+        mock_secrets_client = MagicMock()
+        boto_session_mock.return_value.client.return_value = mock_secrets_client
+        mock_secrets_client.get_secret_value.side_effect = ClientError({"Error": {"Code": "SecretNotFound"}}, "get_secret_value")
+
+        expected_output = {
+            "statusCode": 500,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"Message": "Internal error"})
+        }
+
+        actual_output = lambda_handler(mock_event, mock_context)
+
+        self.assertEqual(actual_output, expected_output)
+
+if __name__ == '__main__':
+    unittest.main()
+```
