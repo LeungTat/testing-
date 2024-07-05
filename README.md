@@ -1,48 +1,123 @@
 ```
-import ipaddress
+import React, { useState, useEffect, useCallback } from "react";
+import { AccountRaw } from "../../../../../types";
+import invokeApi from "../../../../../libs/apiGateway";
+import { inflate } from "pako";
+import RefreshIcon from "../../../../../lib/icons/RefreshIcon";
+import _ from "lodash";
 
-def clean(self):
-    """Perform additional field validation"""
-    if not self.account:
-        raise ValidationError("Account is invalid!")
-    account_class = int(self.account.account_type)
+interface ResourceDescription {
+  ResourceType: string;
+  FriendlyName: string;
+  NameKey: string;
+  ValueKey?: string;
+  DefaultValue?: string;
+}
 
-    all_existing_cidr_blocks = [ipaddress.ip_network(block) for block in CidrBlock.objects.all()]
+const resourceDisplayItems: Record<string, ResourceDescription> = {
+  sidecar_proxy_whitelist: {
+    ResourceType: "sidecar_proxy_whitelist",
+    FriendlyName: "Sidecar Proxy Whitelist",
+    NameKey: "Id",
+  },
+};
 
-    # only number 4 or above will be considered as production
-    account_category = "prod" if account_class >= 4 else "non-prod"
-    ok, result = get_cidr(
-        is_cid=self.account.is_cid,
-        cidr_blocks=self.VALID_CIDR_BLOCKS,
-        region_code=self.region,
-        environment=account_category,
-    )
-    if not ok:
-        raise ValidationError(result)
-    
-    valid_cidr_blocks = result
-    if not self.ipv4_subnet_address:
-        for valid_cidr_block in valid_cidr_blocks:
-            cidr_block_head = ipaddress.ip_network(valid_cidr_block)
-            # Check if the CIDR block head is strictly within the valid CIDR range
-            if not any(cidr_block_head.subnet_of(ipaddress.ip_network(valid_block)) for valid_block in valid_cidr_blocks):
-                raise ValidationError("Invalid CIDR block - the CIDR block is not within the valid range.")
-        if self.find_cidr_block(cidr_block_head, valid_cidr_block, all_existing_cidr_blocks):
-            raise ValidationError("Cannot find CIDR block!")
-    else:
-        cidr_block_head = ipaddress.ip_network(f"{self.ipv4_subnet_address}/{self.ipv4_subnet_mask}")
-        if not any(cidr_block_head.subnet_of(ipaddress.ip_network(valid_block)) for valid_block in valid_cidr_blocks):
-            raise ValidationError("Invalid IPv4 subnet address - the CIDR has already been allocated")
+type ResourceType = keyof typeof resourceDisplayItems;
+interface ResourceCacheDict {
+  [index: string]: string | ResourceCacheDict;
+}
 
-def find_cidr_block(self, self_cidr_block_head, valid_cidr_block, all_existing_cidr_blocks):
-    while not self.validate_exist_pk(self_cidr_block_head, valid_cidr_block, all_existing_cidr_blocks):
-        try:
-            list(ipaddress.ip_network(str(valid_cidr_block)).address_exclude(self_cidr_block_head))
-            cidr_block_head = ipaddress.ip_network(str(self_cidr_block_head))
-            if not any(cidr_block_head.subnet_of(ipaddress.ip_network(valid_block)) for valid_block in valid_cidr_blocks):
-                raise ValidationError("Invalid IPv4 subnet address - the CIDR has already been allocated")
-        except ValueError:
-            return False
-    return True
+interface CompressedResourceCache {
+  compressed: boolean;
+  data: string;
+}
+
+interface ResourcesProps {
+  account: AccountRaw;
+}
+
+function base64ToBuffer(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+const decompress = (compressedData: string): Array<ResourceCacheDict> => {
+  return JSON.parse(new TextDecoder().decode(inflate(base64ToBuffer(compressedData))));
+};
+
+const SidebarProxyWhitelist: React.FC<ResourcesProps> = ({ account }) => {
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [resourceDisplayId, setResourceDisplayId] = useState<ResourceType | null>(null);
+  const [resources, setResources] = useState<Array<ResourceCacheDict>>([]);
+
+  const getResources = useCallback(async (newResourceDisplayId: ResourceType) => {
+    setIsLoading(true);
+    setResourceDisplayId(newResourceDisplayId);
+    try {
+      const maybeCompressedResources = await invokeApi<Array<ResourceCacheDict> | CompressedResourceCache>({
+        path: "/resource_cache",
+        queryParams: {
+          account_id: account.id,
+          resource_type: resourceDisplayItems[newResourceDisplayId].ResourceType,
+        },
+      });
+
+      let fetchedResources: Array<ResourceCacheDict>;
+      if ("compressed" in maybeCompressedResources && maybeCompressedResources.compressed === true) {
+        fetchedResources = decompress(maybeCompressedResources.data);
+      } else {
+        fetchedResources = maybeCompressedResources as Array<ResourceCacheDict>;
+      }
+
+      if (fetchedResources.length === 0) {
+        fetchedResources = [];
+      }
+
+      setResources(fetchedResources);
+    } catch (e) {
+      console.log(e);
+      alert("Unable to complete request. Access token may have expired.");
+    }
+    setIsLoading(false);
+  }, [account.id]);
+
+  useEffect(() => {
+    if (resourceDisplayId) {
+      getResources(resourceDisplayId);
+    }
+  }, [resourceDisplayId, getResources]);
+
+  const renderContent = () => {
+    if (isLoading) {
+      return <RefreshIcon size="medium" />;
+    }
+    if (resources.length > 0 && resourceDisplayId !== null) {
+      return (
+        <div data-cy="resource_cache_output">
+          {_.map(resources, (value, key) => (
+            <div key={key}>{JSON.stringify(value)}</div>
+          ))}
+        </div>
+      );
+    }
+    if (!resourceDisplayId) {
+      return <h4>Select a resource type</h4>;
+    }
+    return <h4>No results</h4>;
+  };
+
+  return (
+    <div>
+      {renderContent()}
+    </div>
+  );
+};
+
+export default SidebarProxyWhitelist;
+
 
 ```
