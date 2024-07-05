@@ -51,18 +51,16 @@ const decompress = (compressedData: string): Array<ResourceCacheDict> => {
 
 const SidebarProxyWhitelist: React.FC<ResourcesProps> = ({ account }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [resourceDisplayId, setResourceDisplayId] = useState<ResourceType | null>(null);
   const [resources, setResources] = useState<Array<ResourceCacheDict>>([]);
 
-  const getResources = useCallback(async (newResourceDisplayId: ResourceType) => {
+  const getResources = useCallback(async () => {
     setIsLoading(true);
-    setResourceDisplayId(newResourceDisplayId);
     try {
       const maybeCompressedResources = await invokeApi<Array<ResourceCacheDict> | CompressedResourceCache>({
         path: "/resource_cache",
         queryParams: {
           account_id: account.id,
-          resource_type: resourceDisplayItems[newResourceDisplayId].ResourceType,
+          resource_type: resourceDisplayItems["sidecar_proxy_whitelist"].ResourceType,
         },
       });
 
@@ -86,16 +84,14 @@ const SidebarProxyWhitelist: React.FC<ResourcesProps> = ({ account }) => {
   }, [account.id]);
 
   useEffect(() => {
-    if (resourceDisplayId) {
-      getResources(resourceDisplayId);
-    }
-  }, [resourceDisplayId, getResources]);
+    getResources();
+  }, [getResources]);
 
   const renderContent = () => {
     if (isLoading) {
       return <RefreshIcon size="medium" />;
     }
-    if (resources.length > 0 && resourceDisplayId !== null) {
+    if (resources.length > 0) {
       return (
         <div data-cy="resource_cache_output">
           {_.map(resources, (value, key) => (
@@ -103,9 +99,6 @@ const SidebarProxyWhitelist: React.FC<ResourcesProps> = ({ account }) => {
           ))}
         </div>
       );
-    }
-    if (!resourceDisplayId) {
-      return <h4>Select a resource type</h4>;
     }
     return <h4>No results</h4>;
   };
@@ -118,6 +111,8 @@ const SidebarProxyWhitelist: React.FC<ResourcesProps> = ({ account }) => {
 };
 
 export default SidebarProxyWhitelist;
+
+
 
 
 ```
