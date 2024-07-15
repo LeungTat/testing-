@@ -12,8 +12,11 @@ logger.setLevel(logging.INFO)
 ADLDS_PATH = {"/status/{status}/executionId", "/adlds-creation"}
 target_adlds = {"adlds_creation_group": os.environ["ADLDS_CREATION_TARGET_ADLDS"]}
 
+# Define the ARN of the Lambda function you want to allow
+allowed_lambda_arn = os.environ["ALLOWED_LAMBDA_ARN"]
+
 class PolicyDispatcher:
-    def __init__(self, self, policy, event):
+    def __init__(self, policy, event):
         self.policy = policy
         self.event = event
         self.access_token = None
@@ -25,7 +28,15 @@ class PolicyDispatcher:
             (ADLDS_PATH["creation"], "POST", None): self.process_query_request,
         }
 
+    def is_request_from_allowed_lambda(self):
+        source_arn = self.event.get("requestContext", {}).get("identity", {}).get("sourceArn", "")
+        return source_arn == allowed_lambda_arn
+
     def process_query_request(self):
+        if not self.is_request_from_allowed_lambda():
+            self.policy.denyAllMethods()
+            return
+
         auth_method = self.event["headers"].get("Authorization", None)
         if self.event["httpMethod"] == "GET" and self.event["resource"] == "/status/{executionId}":
             self.policy.allowMethod("GET", self.event["path"])
@@ -35,6 +46,10 @@ class PolicyDispatcher:
             self.policy.denyAllMethods()
 
     def process_creation_request(self):
+        if not self.is_request_from_allowed_lambda():
+            self.policy.denyAllMethods()
+            return
+
         user_transitive_groups = AuthUtils.get_user_transitive_groups(self.access_token)
         has_target_group = AuthUtils.filter_user_groups(user_transitive_groups, target_adlds["adlds_creation_group"])
         auth_method = self.event["headers"].get("Authorization", None)
@@ -47,27 +62,28 @@ class PolicyDispatcher:
         else:
             self.policy.denyAllMethods()
 
-    def dispatch(self, self, resource, verb, auth_method):
+    def dispatch(self, resource, verb, auth_method):
         function = self.dispatch_table.get((resource, verb, auth_method))
         if function:
             function()
         else:
             self.policy.denyAllMethods()
 
-    def lambda_handler(self, event, context):
-        processor = EventProcessor(event)
-        policy = processor.get_policy()
-        logger.info("New ADLDS Automation Event")
-        logger.info(f"Resource: {processor.get_resource()}, Path: {processor.get_path()}, Verb: {processor.get_verb()}, Method: {processor.get_auth_method()}")  # noqa: E501
+def lambda_handler(event, context):
+    processor = EventProcessor(event)
+    policy = processor.get_policy()
+    logger.info("New ADLDS Automation Event")
+    logger.info(f"Resource: {processor.get_resource()}, Path: {processor.get_path()}, Verb: {processor.get_verb()}, Method: {processor.get_auth_method()}")  # noqa: E501
 
-        try:
-            dispatcher = PolicyDispatcher(policy, event)
-            dispatcher.dispatch(processor.get_resource(), processor.get_verb(), processor.get_auth_method())
-            authResponse = dispatcher.policy.build()
-        except Exception as e:
-            logger.error(e)
-            self.policy.denyAllMethods()
-            authResponse = self.policy.build()
-        return authResponse
+    try:
+        dispatcher = PolicyDispatcher(policy, event)
+        dispatcher.dispatch(processor.get_resource(), processor.get_verb(), processor.get_auth_method())
+        authResponse = dispatcher.policy.build()
+    except Exception as e:
+        logger.error(e)
+        policy.denyAllMethods()
+        authResponse = policy.build()
+    return authResponse
+
 
 ```
