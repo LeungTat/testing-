@@ -1,89 +1,74 @@
 
 ```
-import logging
-import os
+import utils
+import traceback
+from http import HTTPStatus
+from sfn_request import SfnRequest
+from aws_lambda_powertools.logging import Logger, Tracer
+from aws_lambda_powertools.logging import correlation_paths
+from aws_lambda_powertools.event_handler import APIGatewayRestResolver
 
-from authorizer_library.event_processor import EventProcessor
-from authorizer_library.utils import AuthUtils
+logger = Logger(location="%(module)s.%(funcName)s:%(lineno)d")
+tracer = Tracer()
+app = APIGatewayRestResolver(strip_prefixes=["/adfs-role-orch"])
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-ADLDS_PATH = {"/status/{status}/executionId", "/adlds-creation"}
-target_adlds = {"adlds_creation_group": os.environ["ADLDS_CREATION_TARGET_ADLDS"]}
-
-# Define the ARN of the Lambda function you want to allow
+# Define the allowed Lambda ARN
 allowed_lambda_arn = os.environ["ALLOWED_LAMBDA_ARN"]
 
-class PolicyDispatcher:
-    def __init__(self, policy, event):
-        self.policy = policy
-        self.event = event
-        self.access_token = None
-        self.user_transitive_groups = None
-        self.dispatch_table = {
-            (ADLDS_PATH["status"], "GET", "secretkey"): self.process_query_request,
-            (ADLDS_PATH["status"], "GET", None): self.process_query_request,
-            (ADLDS_PATH["creation"], "POST", "secretkey"): self.process_query_request,
-            (ADLDS_PATH["creation"], "POST", None): self.process_query_request,
-        }
+def is_request_from_allowed_lambda(event):
+    source_arn = event.get("requestContext", {}).get("identity", {}).get("sourceArn", "")
+    return source_arn == allowed_lambda_arn
 
-    def is_request_from_allowed_lambda(self):
-        source_arn = self.event.get("requestContext", {}).get("identity", {}).get("sourceArn", "")
-        return source_arn == allowed_lambda_arn
+@tracer.capture_method
+def sfn_trigger_handler(payload, event):
+    if not is_request_from_allowed_lambda(event):
+        return {"message": "Forbidden"}, HTTPStatus.FORBIDDEN
 
-    def process_query_request(self):
-        if not self.is_request_from_allowed_lambda():
-            self.policy.denyAllMethods()
-            return
-
-        auth_method = self.event["headers"].get("Authorization", None)
-        if self.event["httpMethod"] == "GET" and self.event["resource"] == "/status/{executionId}":
-            self.policy.allowMethod("GET", self.event["path"])
-        elif auth_method == "secretkey":
-            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
-        else:
-            self.policy.denyAllMethods()
-
-    def process_creation_request(self):
-        if not self.is_request_from_allowed_lambda():
-            self.policy.denyAllMethods()
-            return
-
-        user_transitive_groups = AuthUtils.get_user_transitive_groups(self.access_token)
-        has_target_group = AuthUtils.filter_user_groups(user_transitive_groups, target_adlds["adlds_creation_group"])
-        auth_method = self.event["headers"].get("Authorization", None)
-        if auth_method == "secretkey":
-            logger.info(f"Using {auth_method}")
-            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
-        elif has_target_group:
-            logger.info(f"Group matched: {target_adlds['adlds_creation_group']}")
-            self.policy.allowMethod(self.event["httpMethod"], self.event["path"])
-        else:
-            self.policy.denyAllMethods()
-
-    def dispatch(self, resource, verb, auth_method):
-        function = self.dispatch_table.get((resource, verb, auth_method))
-        if function:
-            function()
-        else:
-            self.policy.denyAllMethods()
-
-def lambda_handler(event, context):
-    processor = EventProcessor(event)
-    policy = processor.get_policy()
-    logger.info("New ADLDS Automation Event")
-    logger.info(f"Resource: {processor.get_resource()}, Path: {processor.get_path()}, Verb: {processor.get_verb()}, Method: {processor.get_auth_method()}")  # noqa: E501
-
+    resp = {"request_id": logger.get_correlation_id()}
     try:
-        dispatcher = PolicyDispatcher(policy, event)
-        dispatcher.dispatch(processor.get_resource(), processor.get_verb(), processor.get_auth_method())
-        authResponse = dispatcher.policy.build()
+        logger.append_keys(account_id=payload['account_id'], role_name=payload['custom_role_name'])
+        SfnRequest.validate_payload_params(payload)
+        account_entity = utils.get_account_entity(payload['account_id'])
+        utils.raise_for_ineligible_request(payload, account_entity)
+        SfnRequest(
+            utils.encrypt_token(app.current_event.get_header_value(name='AuthorizationToken', case_sensitive=False)),
+            payload,
+            account_entity,
+            logger.get_correlation_id()
+        ).execute()
     except Exception as e:
-        logger.error(e)
-        policy.denyAllMethods()
-        authResponse = policy.build()
-    return authResponse
+        logger.exception('Failed to trigger step function')
+        tracer.provider.current_subsegment().add_error_flag()
+        tracer.provider.current_subsegment().add_exception(e, traceback.extract_stack())
+        resp['error'] = type(e).__name__
+        if hasattr(e, 'status_code'):
+            return resp, e.status_code
+        return resp, HTTPStatus.INTERNAL_SERVER_ERROR.value
+    finally:
+        logger.remove_keys(['account_id', 'custom_role_name'])
+    return resp, HTTPStatus.ACCEPTED.value
+
+@app.post('/role/create')
+def handle_custom_role():
+    request_body = app.current_event.json_body
+    account_id = request_body.get('account_id')
+    custom_role_name = request_body.get('custom_role_name')
+
+    payload = {
+        'account_id': account_id,
+        'build_type': 'custom',
+        'action': 'apply',
+        'custom_role_name': custom_role_name,
+        'dry_run': False,
+        'update_init_role': False
+    }
+    return sfn_trigger_handler(payload, app.current_event)
+
+@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST)
+@tracer.capture_lambda_handler
+def lambda_handler(event, context):
+    return app.resolve(event, context)
+
 
 
 ```
