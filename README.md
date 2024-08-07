@@ -1,7 +1,7 @@
 
 ```
 {
-  "Comment": "A state machine to orchestrate AD/DS group (not yet implemented) and IAM role creation",
+  "Comment": "A state machine to orchestrate AD/DS group and IAM role creation",
   "StartAt": "UpsertRequestRecord",
   "States": {
     "UpsertRequestRecord": {
@@ -56,61 +56,104 @@
         }
       ],
       "ResultPath": null,
-      "Next": "InsertRequestHistory"
+      "Next": "CallADLDSCreationAPI"
     },
-    "InsertRequestHistory": {
+    "CallADLDSCreationAPI": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Resource": "${module.lambda_function.iam_role_orchestrator_proxy.function_arn}",
       "Parameters": {
-        "TableName": "${aws_dynamodb_table.iam_orchestrator_request_history.id}",
-        "Item": {
-          "request_id": {
-            "S.$": "$.correlation_id"
+        "Payload": {
+          "method": "POST",
+          "url": "https://api-endpoint.gwa-euw1.prod.cloud.fedex.sxdlx/adlds-creation",
+          "headers": {
+            "Content-Type": "application/json"
           },
-          "account_id": {
-            "S.$": "$.build_body.account_id"
-          },
-          "resource": {
-            "S.$": "$.ddb_composite_sort_key"
-          },
-          "action": {
-            "S.$": "$.build_body.action"
-          },
-          "job_id": {
-            "S.$": "$$.Execution.Id"
-          },
-          "start_at": {
-            "S.$": "$$.Execution.StartTime"
-          },
-          "status": {
-            "S": "IN_PROGRESS"
-          },
-          "trace_header": {
-            "S.$": "$.trace_header"
+          "body": {
+            "type": "ADLDS",
+            "adlds_partition_name.$": "$.build_body.adlds_partition_name",
+            "adlds_group_name.$": "$.build_body.adlds_group_name",
+            "is_load_test_project.$": "$.build_body.is_load_test_project",
+            "environment.$": "$.build_body.environment"
           }
         }
       },
+      "ResultPath": "$.adlds_creation_result",
+      "Next": "WaitForADLDSStatus",
       "Catch": [
         {
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Next": "UpdateFailedRecord",
+          "Next": "HandleADLDSFailure",
           "ResultPath": "$.error_info"
         }
-      ],
-      "Retry": [
+      ]
+    },
+    "WaitForADLDSStatus": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "GetADLDSStatus"
+    },
+    "GetADLDSStatus": {
+      "Type": "Task",
+      "Resource": "${module.lambda_function.iam_role_orchestrator_proxy.function_arn}",
+      "Parameters": {
+        "Payload": {
+          "method": "GET",
+          "url.$": "States.Format('https://api-endpoint.gwa-euw1.prod.cloud.fedex.sxdlx/status/{}', $.adlds_creation_result.executionId)",
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "ResultPath": "$.adlds_status_result",
+      "Next": "CheckADLDSStatus",
+      "Catch": [
         {
           "ErrorEquals": [
             "States.ALL"
           ],
-          "IntervalSeconds": 3,
-          "MaxAttempts": 2,
-          "BackoffRate": 2
+          "Next": "HandleADLDSFailure",
+          "ResultPath": "$.error_info"
+        }
+      ]
+    },
+    "CheckADLDSStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.adlds_status_result.status",
+          "StringEquals": "COMPLETED",
+          "Next": "TriggerBuild"
+        },
+        {
+          "Variable": "$.adlds_status_result.status",
+          "StringEquals": "IN_PROGRESS",
+          "Next": "WaitForADLDSStatus"
         }
       ],
-      "ResultPath": null,
-      "Next": "TriggerBuild"
+      "Default": "HandleADLDSFailure"
+    },
+    "HandleADLDSFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${aws_dynamodb_table.iam_orchestrator_execution_status.id}",
+        "Key": {
+          "account_id": {"S.$": "$.build_body.account_id"},
+          "resource": {"S.$": "$.ddb_composite_sort_key"}
+        },
+        "UpdateExpression": "SET #status = :failed, #error = :error_message",
+        "ExpressionAttributeNames": {
+          "#status": "status",
+          "#error": "error"
+        },
+        "ExpressionAttributeValues": {
+          ":failed": {"S": "FAILED"},
+          ":error_message": {"S.$": "States.JsonToString($.error_info)"}
+        }
+      },
+      "Next": "FailState"
     },
     "TriggerBuild": {
       "Type": "Task",
@@ -156,6 +199,11 @@
           "BackoffRate": 2
         }
       ]
+    },
+    "WaitForBuildStatus": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "GetBuildStatus"
     },
     "GetBuildStatus": {
       "Type": "Task",
@@ -217,10 +265,11 @@
       ],
       "Default": "GenerateBuildStatusErrorMessage"
     },
-    "WaitForBuildStatus": {
-      "Type": "Wait",
-      "Seconds": 60,
-      "Next": "GetBuildStatus"
+    "GenerateBuildStatusErrorMessage": {
+      "Type": "Pass",
+      "Next": "UpdateFailedRecord",
+      "Result": "Build status is not in [SUCCEEDED, IN_PROGRESS].",
+      "ResultPath": "$.error_info"
     },
     "UpdateSuccessfulRecord": {
       "Type": "Task",
@@ -235,13 +284,17 @@
             "S.$": "$.ddb_composite_sort_key"
           }
         },
-        "UpdateExpression": "SET #exe_status = :new_status",
+        "UpdateExpression": "SET #exe_status = :new_status, #adlds_info = :adlds_info",
         "ExpressionAttributeNames": {
-          "#exe_status": "status"
+          "#exe_status": "status",
+          "#adlds_info": "adlds_info"
         },
         "ExpressionAttributeValues": {
           ":new_status": {
             "S": "COMPLETE"
+          },
+          ":adlds_info": {
+            "S.$": "States.JsonToString($.adlds_status_result)"
           }
         }
       },
@@ -290,6 +343,83 @@
       ],
       "ResultPath": null,
       "End": true
+    },
+    "UpdateFailedRecord": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${aws_dynamodb_table.iam_orchestrator_execution_status.id}",
+        "Key": {
+          "account_id": {
+            "S.$": "$.build_body.account_id"
+          },
+          "resource": {
+            "S.$": "$.ddb_composite_sort_key"
+          }
+        },
+        "UpdateExpression": "SET #exe_status = :new_status, #error_info = :error_clause",
+        "ExpressionAttributeNames": {
+          "#exe_status": "status",
+          "#error_info": "error"
+        },
+        "ExpressionAttributeValues": {
+          ":new_status": {
+            "S": "FAILED"
+          },
+          ":error_clause": {
+            "S.$": "States.JsonToString($.error_info)"
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "ResultPath": null,
+      "Next": "UpdateFailedHistory"
+    },
+    "UpdateFailedHistory": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${aws_dynamodb_table.iam_orchestrator_request_history.id}",
+        "Key": {
+          "request_id": {
+            "S.$": "$.correlation_id"
+          }
+        },
+        "UpdateExpression": "SET #exe_status = :new_status",
+        "ExpressionAttributeNames": {
+          "#exe_status": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":new_status": {
+            "S": "FAILED"
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "FailState"
+    },
+    "FailState": {
+      "Type": "Fail",
+      "Cause": "Error in workflow execution",
+      "Error": "WorkflowFailure"
     }
   }
 }
