@@ -2932,3 +2932,226 @@
   }
 }
 ```
+```
+import re
+import utils
+import traceback
+from http import HTTPStatus
+from sfn_request import SfnRequest
+from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.logging import correlation_id
+from aws_lambda_powertools.event_handler import APIGatewayRestResolver
+from botocore.exceptions import ClientError
+import json
+import os
+import boto3
+from pydantic import BaseModel, validator, root_validator
+from typing import List, Optional
+from boto3.dynamodb.types import TypeDeserializer
+import requests
+from datetime import datetime, timedelta
+
+logger = Logger(location="%(module)s.%(funcName)s:%(lineno)d")
+tracer = Tracer()
+app = APIGatewayRestResolver(strip_prefixes=["/adfs-role-orch"])
+
+ssm = boto3.client('ssm')
+dynamodb = boto3.client('dynamodb')
+
+ALLOWED_AWS_REGION = ["us-east-1", "us-west-2"]  # Add your allowed regions here
+
+class ChangeDetails(BaseModel):
+    change_request_id: str
+    url: str
+    vpce_id: str
+    region: str
+    force_submit: bool = False
+
+    @validator("change_request_id")
+    def valid_change_request_id(cls, change_request_id: str) -> str:
+        if not re.compile(r"^(change123).{2,}$").match(change_request_id):
+            raise ValueError(f"{change_request_id} is not a valid change_request_id")
+        return change_request_id
+
+    @validator("region")
+    def valid_region(cls, region: str) -> str:
+        if region not in ALLOWED_AWS_REGION:
+            raise ValueError(f"{region} is not a valid region in {ALLOWED_AWS_REGION}")
+        return region
+
+class RoleCreationRequest(BaseModel):
+    account_id: str
+    creation_type: str
+    change_list: List[ChangeDetails]
+
+class StatusUpdate(BaseModel):
+    change_request_id: str
+    account_id: str
+
+    @root_validator(skip_on_failure=True)
+    def check_valid(cls, values: dict) -> dict:
+        if not values.get("change_request_id") and not values.get("account_id"):
+            raise ValueError("This is required query parameter.")
+        return values
+
+class ChangeRequest(BaseModel):
+    short_description: str
+    description: str
+    assignment_group: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    implementation_plan: str = "Automated process will create the IAM role upon approval"
+    test_plan: str = "Automated tests will be run to verify the role creation"
+    rollback_plan: str = "Automated process will delete the IAM role if needed"
+    justification: str = "Required for automated IAM role creation"
+
+def deserialize_db_item(item: dict) -> dict:
+    deserializer = TypeDeserializer()
+    return {
+        "change_request_id": deserializer.deserialize(item["change_request_id"]),
+        "region": deserializer.deserialize(item["region"]),
+        "creation_type": deserializer.deserialize(item["creation_type"]),
+        "request_body": deserializer.deserialize(item["request_body"]),
+        "trace_number": deserializer.deserialize(item["trace_number"]),
+        "status_message": deserializer.deserialize(item["status_message"]),
+    }
+
+def get_request_status_by_change_request_id(change_request_id: str) -> dict:
+    response = dynamodb.get_item(
+        TableName=os.environ['DYNAMODB_TABLE_NAME'],
+        Key={'change_request_id': {'S': change_request_id}}
+    )
+    return deserialize_db_item(response['Item'])
+
+def get_request_status_by_account_id(account_id: str) -> list:
+    response = dynamodb.query(
+        TableName=os.environ['DYNAMODB_TABLE_NAME'],
+        IndexName='account_id-index',
+        KeyConditionExpression='account_id = :account_id',
+        ExpressionAttributeValues={':account_id': {'S': account_id}}
+    )
+    return [deserialize_db_item(item) for item in response['Items']]
+
+def get_snow_auth():
+    snow_username = ssm.get_parameter(Name=os.environ['SNOW_USERNAME_PARAM'], WithDecryption=True)['Parameter']['Value']
+    snow_password = ssm.get_parameter(Name=os.environ['SNOW_PASSWORD_PARAM'], WithDecryption=True)['Parameter']['Value']
+    return snow_username, snow_password
+
+def create_snow_change_request(change_request: ChangeRequest):
+    snow_instance = os.environ['SNOW_INSTANCE']
+    snow_username, snow_password = get_snow_auth()
+
+    url = f"https://{snow_instance}.service-now.com/api/now/table/change_request"
+    headers = {"Content-Type": "application/json"}
+    
+    payload = change_request.dict()
+    payload["u_change_type"] = "normal"
+    payload["u_change_class"] = "standard"
+    
+    if not payload.get("start_date"):
+        payload["start_date"] = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+    if not payload.get("end_date"):
+        payload["end_date"] = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+
+    response = requests.post(url, auth=(snow_username, snow_password), headers=headers, json=payload)
+    response.raise_for_status()
+    
+    return response.json()["result"]["sys_id"]
+
+@tracer.capture_method
+def create_change_request(payload, account_entity):
+    approval_group = account_entity.get("ApprovalGroup", "NotAvailable")
+    
+    if approval_group == "NotAvailable":
+        logger.error("ApprovalGroup is not available for Prod account")
+        return {"error": "ApprovalGroup not available"}, HTTPStatus.BAD_REQUEST.value
+    
+    try:
+        change_request = ChangeRequest(
+            short_description=f"Create IAM role {payload['custom_role_name']} in account {payload['account_id']}",
+            description=f"Create IAM role {payload['custom_role_name']} in account {payload['account_id']}",
+            assignment_group=approval_group
+        )
+        
+        cr_sys_id = create_snow_change_request(change_request)
+        logger.info(f"Change Request created successfully: {cr_sys_id}")
+        return {"message": "Change Request created", "cr_sys_id": cr_sys_id}, HTTPStatus.ACCEPTED.value
+
+    except requests.RequestException as e:
+        logger.exception("Error occurred while creating Change Request")
+        return {"error": str(e)}, HTTPStatus.INTERNAL_SERVER_ERROR.value
+    except Exception as e:
+        logger.exception("Unexpected error occurred while creating Change Request")
+        return {"error": str(e)}, HTTPStatus.INTERNAL_SERVER_ERROR.value
+
+@tracer.capture_method
+def sfn_trigger_handler(payload):
+    resp = {"request_id": logger.get_correlation_id()}
+    try:
+        logger.append_keys(account_id=payload["account_id"], role_name=payload["custom_role_name"])
+        SfnRequest.validate_payload_params(payload)
+        account_entity = utils.get_account(payload["account_id"])
+        utils.raise_for_ineligible_request(payload, account_entity)
+        
+        # Check account placement
+        placement = account_entity.get("Placement", "").lower()
+        if placement == "prod":
+            return create_change_request(payload, account_entity)
+        elif placement in ["development", "pre-prod"]:
+            SfnRequest(
+                utils.decrypt_token(app.current_event.get_header_value(name="AuthorizationToken", case_sensitive=False)),
+                payload,
+                account_entity,
+                logger.get_correlation_id()
+            ).execute()
+        else:
+            raise ValueError(f"Invalid account placement: {placement}")
+
+    except Exception as e:
+        logger.exception("Failed to trigger step function")
+        tracer.provider.current_subsegment().add_error_flag()
+        tracer.capture_exception(e, traceback.extract_stack())
+        resp["error"] = type(e).__name__
+        if hasattr(e, "status_code"):
+            return resp, e.status_code
+        return resp, HTTPStatus.INTERNAL_SERVER_ERROR.value
+    finally:
+        logger.remove_keys(["account_id", "custom_role_name"])
+    return resp, HTTPStatus.ACCEPTED.value
+
+@app.post("/role/create")
+def handle_custom_role():
+    request_body = app.current_event.json_body
+    account_id = request_body.get("account_id")
+    custom_role_name = request_body.get("custom_role_name")
+    payload = {
+        "account_id": account_id,
+        "build_type": "custom",
+        "action": "apply",
+        "custom_role_name": custom_role_name,
+        "dry_run": True,
+        "update_init_role": False
+    }
+    print(payload)
+    return sfn_trigger_handler(payload)
+
+@app.get("/status")
+def get_request_status():
+    try:
+        data = StatusUpdate(**app.current_event.query_string_parameters)
+        if data.change_request_id:
+            result = get_request_status_by_change_request_id(data.change_request_id)
+        elif data.account_id:
+            result = get_request_status_by_account_id(data.account_id)
+        else:
+            return {"error": "Invalid request"}, HTTPStatus.BAD_REQUEST.value
+        return result, HTTPStatus.OK.value
+    except Exception as e:
+        logger.exception("Error retrieving request status")
+        return {"error": str(e)}, HTTPStatus.INTERNAL_SERVER_ERROR.value
+
+@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST)
+@tracer.capture_lambda_handler
+def lambda_handler(event, context):
+    return app.resolve(event, context)
+```
