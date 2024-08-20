@@ -3645,3 +3645,13 @@ def handle_custom_role():
 def lambda_handler(event, context):
     return app.resolve(event, context)
 ```
+
+```
+existing_requests = ddb_client.query_items_with_index(
+            index_name="account_id-index",
+            key_condition_expression="account_id = :account_id",
+            expression_attribute_values={
+                ":account_id": {"S": payload["account_id"]}
+            }
+        )
+```
