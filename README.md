@@ -3399,3 +3399,249 @@ def get_cr_data(ddb_client: RemovalStatusDDBClient, approval_group: str, payload
         logger.error(e)
         return None
 ```
+```
+import utils
+import traceback
+from http import HTTPStatus
+from sfn_request import SfnRequest
+from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.logging import correlation_id
+from aws_lambda_powertools.event_handler import APIGatewayRestResolver
+import asyncio
+from utils.aws import get_secret, RemovalStatusDDBClient
+from utils.params import CONTACT_MAPPING, SidecarRemovalRequestBody
+from utils.omni import OmniClient
+from utils.constants import CHANGE_REQUEST_STATUS
+from aws_lambda_powertools.utilities.parser import parse
+import json
+from datetime import datetime
+import os
+import random
+
+logger = Logger(location="%(module)s.%(funcName)s:%(lineno)d")
+tracer = Tracer()
+app = APIGatewayRestResolver(strip_prefixes=["/adfs-role-orch"])
+
+SN_SECRET_NAME = os.environ.get('SN_SECRET_NAME')
+
+class CRData(BaseModel):
+    account_id: str = None
+    schedule_date: str = None
+    location: str = "Asia/Hong_Kong"
+    staff_id: str = None
+    approval_group: str
+    email: str = None
+    custom_role_name: str = None
+
+    @root_validator(skip_on_failure=True)
+    def check_model(cls, values: dict) -> dict:
+        values['staff_id'], values['email'] = random.choice(list(CONTACT_MAPPING.items()))
+        values['schedule_date'] = '2024-11-01 08:30:00'
+        return values
+
+@tracer.capture_method
+def get_cr_data(ddb_client: RemovalStatusDDBClient, approval_group: str, payload: dict) -> Optional[CRData]:
+    try:
+        data: CRData = parse(
+            CRData,
+            {
+                "approval_group": approval_group,
+                "account_id": payload["account_id"],
+                "custom_role_name": payload["custom_role_name"]
+            }
+        )
+        return data
+    except ValidationError as e:
+        logger.error(e)
+        return None
+
+@tracer.capture_method
+async def create_snow_change_request(request_id, payload, approval_group):
+    try:
+        ddb_client = RemovalStatusDDBClient()
+        sn_secret = get_secret(SN_SECRET_NAME)
+        if not sn_secret:
+            raise ValueError("Failed to retrieve ServiceNow secret")
+
+        sn_creds = json.loads(sn_secret)
+        omni_client = OmniClient(
+            sn_authorization=sn_creds.get('sn_authentication_bearer_token'),
+            sn_client_id=sn_creds.get('sn_client_id'),
+            sn_client_secret=sn_creds.get('sn_client_secret'),
+            sn_change_requestid=sn_creds.get('sn_change_x_request_id')
+        )
+
+        data: Optional[CRData] = get_cr_data(ddb_client, approval_group, payload)
+        if not data:
+            raise ValueError("Failed to prepare CR data")
+
+        omni_client.set_user(staff_id=data.staff_id, verify_config=True)
+        
+        cr_number = omni_client.create_cr(**data.dict())
+        logger.info(f"Change Request created successfully: {cr_number}")
+
+        # Update DynamoDB with the cr_number
+        ddb_client.update_item(
+            request_id,
+            {
+                'cr_number': {'S': cr_number},
+                'cr_status': {'S': 'New'},
+                'status_message': {'M': {
+                    'status_code': {'S': 'create_cr_success'},
+                    'description': {'S': f"<{cr_number}> CR created successfully."}
+                }},
+                'updated_at': {'S': datetime.now().isoformat()}
+            }
+        )
+
+        # Assess the change request
+        omni_client.assess_cr(cr_number)
+        logger.info(f"Change Request {cr_number} assessed successfully")
+
+        # Update DynamoDB after assessment
+        ddb_client.update_item(
+            request_id,
+            {
+                'cr_status': {'S': 'Assess'},
+                'status_message': {'M': {
+                    'status_code': {'S': 'assess_cr_success'},
+                    'description': {'S': "The CR has been moved to assess."}
+                }},
+                'updated_at': {'S': datetime.now().isoformat()}
+            }
+        )
+
+    except Exception as e:
+        logger.exception(f"Error creating ServiceNow change request for request_id {request_id}")
+        # Update DynamoDB with error status
+        ddb_client.update_item(
+            request_id,
+            {
+                'status_message': {'M': {
+                    'status_code': {'S': 'create_cr_failed'},
+                    'description': {'S': str(e)}
+                }},
+                'updated_at': {'S': datetime.now().isoformat()}
+            }
+        )
+
+@tracer.capture_method
+async def create_change_request(payload, account_entity):
+    approval_group = account_entity.get("ApprovalGroup", "NotAvailable")
+    
+    if approval_group == "NotAvailable":
+        logger.error("ApprovalGroup is not available for Prod account")
+        return {"error": "ApprovalGroup not available"}, HTTPStatus.BAD_REQUEST.value
+    
+    try:
+        ddb_client = RemovalStatusDDBClient()
+
+        # Check for existing in-progress requests
+        existing_requests = ddb_client.query_items_with_index(
+            index_name="account_id-index",
+            key_condition_expression={
+                "ComparisonOperator": "EQ",
+                "AttributeValueList": [{"S": payload["account_id"]}]
+            }
+        )
+
+        for request in existing_requests:
+            request_body = json.loads(request.get("request_body", "{}"))
+            if (request_body.get("custom_role_name") == payload["custom_role_name"] and
+                request["status_message"]["S"] in [CHANGE_REQUEST_STATUS.CREATED.value, CHANGE_REQUEST_STATUS.IN_PROGRESS.value]):
+                logger.info(f"Request already exists for role {payload['custom_role_name']} in account {payload['account_id']}. "
+                            f"Correlation ID: {request['trace_number']['S']}")
+                return {
+                    "message": "Change Request already exists and is in progress",
+                    "request_id": request["trace_number"]["S"],
+                    "account_id": payload['account_id'],
+                }, HTTPStatus.CONFLICT.value
+
+        # Use logger.get_correlation_id() as the unique identifier
+        request_id = logger.get_correlation_id()
+
+        # Prepare the item for DynamoDB
+        item = {
+            'trace_number': {'S': request_id},
+            'account_id': {'S': payload['account_id']},
+            'creation_type': {'S': 'custom_role'},
+            'request_body': {'S': json.dumps(payload)},
+            'status_message': {'S': CHANGE_REQUEST_STATUS.CREATED.value},
+            'created_at': {'S': datetime.now().isoformat()},
+            'updated_at': {'S': datetime.now().isoformat()},
+            'approval_group': {'S': approval_group}
+        }
+        
+        # Record the change request in DynamoDB
+        ddb_client.put_item(item)
+        
+        # Start asynchronous creation of ServiceNow change request
+        asyncio.create_task(create_snow_change_request(request_id, payload, approval_group))
+        
+        return {
+            "message": "Change Request is being created",
+            "request_id": request_id,
+            "account_id": payload['account_id'],
+            "creation_type": "custom_role"
+        }, HTTPStatus.ACCEPTED.value
+
+    except Exception as e:
+        logger.exception("Unexpected error occurred while initiating Change Request")
+        return {"error": str(e)}, HTTPStatus.INTERNAL_SERVER_ERROR.value
+
+@tracer.capture_method
+def sfn_trigger_handler(payload):
+    resp = {"request_id": logger.get_correlation_id()}
+    try:
+        logger.append_keys(account_id=payload["account_id"], role_name=payload["custom_role_name"])
+        SfnRequest.validate_payload_params(payload)
+        account_entity = utils.get_account(payload["account_id"])
+        utils.raise_for_ineligible_request(payload, account_entity)
+        
+        # Check account placement
+        placement = account_entity.get("Placement", "").lower()
+        if placement == "prod":
+            return create_change_request(payload, account_entity)
+        elif placement in ["development", "pre-prod"]:
+            SfnRequest(
+                util.decrypt_token(app.current_event.get_header_value(name="AuthorizationToken", case_sensitive=False)),
+                payload,
+                account_entity,
+                logger.get_correlation_id()
+            ).execute()
+        else:
+            raise ValueError(f"Invalid account placement: {placement}")
+
+    except Exception as e:
+        logger.exception("Failed to trigger step function")
+        tracer.provider.current_subsegment().add_error_flag()
+        tracer.capture_exception(e, traceback.extract_stack())
+        resp["error"] = type(e).__name__
+        if hasattr(e, "status_code"):
+            return resp, e.status_code
+        return resp, HTTPStatus.INTERNAL_SERVER_ERROR.value
+    finally:
+        logger.remove_keys(["account_id", "custom_role_name"])
+    return resp, HTTPStatus.ACCEPTED.value
+
+@app.post("/role/create")
+def handle_custom_role():
+    request_body = app.current_event.json_body
+    account_id = request_body.get("account_id")
+    custom_role_name = request_body.get("custom_role_name")
+    payload = {
+        "account_id": account_id,
+        "build_type": "custom",
+        "action": "apply",
+        "custom_role_name": custom_role_name,
+        "dry_run": True,
+        "update_init_role": False
+    }
+    print(payload)
+    return sfn_trigger_handler(payload)
+
+@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST)
+@tracer.capture_lambda_handler
+def lambda_handler(event, context):
+    return app.resolve(event, context)
+```
