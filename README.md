@@ -3911,3 +3911,8 @@ def handle_custom_role():
 def lambda_handler(event, context):
     return app.resolve(event, context)
 ```
+
+```
+def run_async_function(coroutine, *args, **kwargs):
+    asyncio.run(coroutine(*args, **kwargs))
+```
