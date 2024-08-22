@@ -4352,3 +4352,22 @@ def handle_custom_role():
 def lambda_handler(event, context):
     return app.resolve(event, context)
 ```
+```
+def get_existed_request_item(ddb_client: DDBClient, account_id: str, custom_role_name: str, request_status: str) -> list:
+    items = ddb_client.query_items_with_index(
+        index_name="account_id_index",
+        conditions={
+            "account_id": {
+                "ComparisonOperator": "EQ", "AttributeValueList": [{"S": account_id}]
+            }
+        }
+    )
+    
+    filtered_items = [
+        item for item in items
+        if item.get("request_body", {}).get("M", {}).get("custom_role_name", {}).get("S") == custom_role_name
+        and item.get("request_status", {}).get("S") == request_status
+    ]
+    
+    return filtered_items
+```
