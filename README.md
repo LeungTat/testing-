@@ -4169,3 +4169,186 @@ def handle_custom_role():
 def lambda_handler(event, context):
     return app.resolve(event, context)
 ```
+```
+import os
+import re
+from datetime import datetime
+import utils
+import traceback
+from http import HTTPStatus
+from sfn_request import SfnRequest
+from aws_lambda_powertools import Logger, Tracer
+from aws_lambda_powertools.logging import correlation_id
+from aws_lambda_powertools.event_handler import APIGatewayRestResolver
+from aws_lambda_powertools.utilities.parser import BaseModel, ValidationError, parse, validator
+from utils.aws import DDBClient, get_existed_request_item, send_message_to_sqs
+from utils.params import VALID_SNOW_LOCATION, ALLOWED_HSBC_REGION
+
+logger = Logger(location="%(module)s.%(funcName)s:%(lineno)d")
+tracer = Tracer()
+app = APIGatewayRestResolver(strip_prefixes=["/adfs-role-orch"])
+
+STATUS_TABLE = os.environ.get('STATUS_TABLE')
+CR_CREATION_SQS_QUEUE_URL = os.environ.get('CR_CREATION_SQS_QUEUE_URL')
+
+class RemovalRequester(BaseModel):
+    request_id: str
+    account_id: str
+    custom_role_name: str
+    schedule_date: str
+    location: str
+    staff_id: str
+    approval_group: str
+
+    @validator('request_id')
+    def set_request_id(cls, v):
+        return logger.get_correlation_id()
+
+    @validator('schedule_date')
+    def validate_schedule_date(cls, schedule_date: str) -> str:
+        try:
+            return str(datetime.strptime(schedule_date, "%Y-%m-%d %H:%M:%S"))
+        except ValueError:
+            raise ValueError(f"{schedule_date} is not a validate schedule_date with 'YYYY-MM-DD HH:MM:SS'")
+
+    @validator('location')
+    def validate_location(cls, location: str) -> str:
+        if location not in VALID_SNOW_LOCATION:
+            raise ValueError(f"{location} is not a valid location in {VALID_SNOW_LOCATION}")
+        return location
+
+    @validator('staff_id')
+    def validate_staff_id(cls, staff_id: str) -> str:
+        if not staff_id.isnumeric():
+            raise ValueError(f"{staff_id} is not a numeric string")
+        if len(staff_id) != 8:
+            raise ValueError(f"{staff_id} does not have a valid length with 8")
+        return staff_id
+
+@tracer.capture_method
+def create_change_request(payload, account_entity):
+    approval_group = account_entity.get("ApprovalGroup", "NotAvailable")
+    
+    if approval_group == "NotAvailable":
+        logger.error("ApprovalGroup is not available for Prod account")
+        return {"error": "ApprovalGroup not available"}, HTTPStatus.BAD_REQUEST.value
+    
+    try:
+        ddb_client = DDBClient(table_name=STATUS_TABLE)
+        
+        # Check if there's an existing request with the same custom_role_name and in_progress status
+        existing_items = get_existed_request_item(
+            ddb_client=ddb_client,
+            account_id=payload["account_id"],
+            custom_role_name=payload["custom_role_name"],
+            request_status="in_progress"
+        )
+        
+        if existing_items:
+            logger.warning(f"There is already an in-progress request for account {payload['account_id']} and custom role {payload['custom_role_name']}")
+            return {"error": "An in-progress request already exists for this custom role"}, HTTPStatus.BAD_REQUEST.value
+
+        data = RemovalRequester(
+            account_id=payload["account_id"],
+            custom_role_name=payload["custom_role_name"],
+            schedule_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            location=account_entity.get("Location", ""),
+            staff_id=payload.get("staff_id", ""),
+            approval_group=approval_group
+        )
+        
+        item = {
+            "request_id": {"S": data.request_id},
+            "account_id": {"S": data.account_id},
+            "cr_number": {"S": ""},
+            "cr_status": {"S": "New"},
+            "implementation_date": {"S": ""},
+            "request_status": {"S": "in_progress"},
+            "request_body": {"M": {
+                "custom_role_name": {"S": data.custom_role_name},
+                "account_id": {"S": data.account_id},
+                "account_entity": {"M": {
+                    key: {"S": str(value)} for key, value in account_entity.items()
+                }}
+            }},
+            "status_message": {"M": {
+                "status_code": {"S": "create_request"},
+                "description": {"S": "Create a request successfully."}
+            }}
+        }
+        ddb_client.put_item(item=item)
+        
+        message_id = send_message_to_sqs(
+            queue_url=CR_CREATION_SQS_QUEUE_URL,
+            message={
+                "request_id": data.request_id,
+                "schedule_date": data.schedule_date,
+                "location": data.location,
+                "staff_id": data.staff_id,
+                "approval_group": data.approval_group
+            }
+        )
+        
+        if message_id:
+            logger.info(f"Sent a message to sidecar_removal_cr_creation_queue. Message ID: {message_id}")
+            return {"message": f"Change Request created: {data.request_id}", "approval_group": approval_group}, HTTPStatus.ACCEPTED.value
+    except Exception as e:
+        logger.exception("Failed to create Change Request")
+        return {"error": str(e)}, HTTPStatus.INTERNAL_SERVER_ERROR.value
+
+@tracer.capture_method
+def sfn_trigger_handler(payload):
+    resp = {"request_id": logger.get_correlation_id()}
+    try:
+        logger.append_keys(account_id=payload["account_id"], role_name=payload["custom_role_name"])
+        SfnRequest.validate_payload_params(payload)
+        account_entity = utils.get_account(payload["account_id"])
+        utils.raise_for_ineligible_request(payload, account_entity)
+        
+        # Check account placement
+        placement = account_entity.get("Placement", "").lower()
+        if placement == "prod":
+            return create_change_request(payload, account_entity)
+        elif placement in ["development", "pre-prod"]:
+            SfnRequest(
+                util.decrypt_token(app.current_event.get_header_value(name="AuthorizationToken", case_sensitive=False)),
+                payload,
+                account_entity,
+                logger.get_correlation_id()
+            ).execute()
+        else:
+            raise ValueError(f"Invalid account placement: {placement}")
+
+    except Exception as e:
+        logger.exception("Failed to trigger step function")
+        tracer.provider.current_subsegment().add_error_flag()
+        tracer.capture_exception(e, traceback.extract_stack())
+        resp["error"] = type(e).__name__
+        if hasattr(e, "status_code"):
+            return resp, e.status_code
+        return resp, HTTPStatus.INTERNAL_SERVER_ERROR.value
+    finally:
+        logger.remove_keys(["account_id", "custom_role_name"])
+    return resp, HTTPStatus.ACCEPTED.value
+
+@app.post("/role/create")
+def handle_custom_role():
+    request_body = app.current_event.json_body
+    account_id = request_body.get("account_id")
+    custom_role_name = request_body.get("custom_role_name")
+    payload = {
+        "account_id": account_id,
+        "build_type": "custom",
+        "action": "apply",
+        "custom_role_name": custom_role_name,
+        "dry_run": True,
+        "update_init_role": False
+    }
+    print(payload)
+    return sfn_trigger_handler(payload)
+
+@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST)
+@tracer.capture_lambda_handler
+def lambda_handler(event, context):
+    return app.resolve(event, context)
+```
