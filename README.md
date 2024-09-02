@@ -4526,3 +4526,91 @@ def handle_custom_role():
 def lambda_handler(event, context):
     return app.resolve(event, context)
 ```
+
+```
+import boto3
+import json
+import os
+import re
+import exceptions
+from aws_lambda_powertools import Logger, Tracer
+
+logger = Logger(location="%(module)s.%(funcName)s:%(lineno)d")
+tracer = Tracer()
+
+class SfnRequest:
+    sfn_client = None
+
+    def __init__(self, payload, account_entity, correlation_id):
+        if SfnRequest.sfn_client is None:
+            SfnRequest.sfn_client = boto3.client('stepfunctions')
+        
+        self.token = payload['token']
+        self.account_id = payload['account_id']
+        self.account_entity = account_entity['Placement']
+        self.build_type = payload['build_type']
+        self.action = payload['action']
+        self.custom_role_name = payload['custom_role_name']
+        self.dry_run = False if not payload.get('dry_run') else payload['dry_run']
+        self.update_init_role = False if not payload.get('update_init_role') else payload['update_init_role']
+        self.correlation_id = correlation_id
+        self.ddb_composite_sort_key = f"{self.build_type}#{self.custom_role_name}#{str(self.dry_run).lower()}"
+        self.eim_id = account_entity['ClarifyId']
+
+        # Set environment based on account_placement
+        self.environment = self.get_environment(self.account_entity.lower())
+
+    @staticmethod
+    def validate_payload_params(payload):
+        if re.match(r"^\d{12}$", payload['account_id']) is None:
+            raise exceptions.BadRequestError('Account ID is invalid')
+        if payload['build_type'] == 'custom' and payload.get('custom_role_name') is None:
+            raise exceptions.BadRequestError('Custom role name is required')
+        if payload['build_type'] == 'custom' and re.match(r"^[A-Za-z0-9_\-]+$", payload['custom_role_name']) is None:
+            raise exceptions.BadRequestError('Custom role name can only contain alphanumeric, underscore and hyphen')
+
+    @staticmethod
+    def get_environment(account_placement):
+        environment_mapping = {
+            "development": "dev",
+            "pre-prod": "pre-prod",
+            "live": "prod",
+            "innovation": "innovation"
+        }
+        return environment_mapping.get(account_placement, None)
+
+    @tracer.capture_method
+    def execute(self):
+        trace_id = 'Root=not enabled;Sampled=0'
+        subsegment = tracer.provider.current_subsegment()
+        if subsegment and subsegment.sampled:
+            trace_id = f"Root={subsegment.trace_id};Sampled=1"
+
+        input_body = {
+            "url": os.environ['IAM_ROLE_MANAGER_URL'],
+            "encrypted_jwt": self.token,
+            "correlation_id": self.correlation_id,
+            "ddb_composite_sort_key": self.ddb_composite_sort_key,
+            "trace_header": trace_id,
+            "build_body": {
+                "account_id": self.account_id,
+                "account_placement": self.account_entity,
+                "build_type": self.build_type,
+                "action": self.action,
+                "custom_role_name": self.custom_role_name,
+                "dry_run": self.dry_run,
+                "update_init_role": self.update_init_role,
+                "eim_id": self.eim_id,
+                "environment": self.environment  # Add environment to build_body
+            }
+        }
+
+        logger.debug(input_body)
+        response = SfnRequest.sfn_client.start_execution(
+            stateMachineArn=os.environ['SFN_ORCHESTRATOR_ARN'],
+            input=json.dumps(input_body),
+            traceHeader=trace_id
+        )
+        return response
+
+```
