@@ -4614,3 +4614,203 @@ class SfnRequest:
         return response
 
 ```
+
+```
+import pytest
+from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, patch, MagicMock
+from botocore.dynamodb.types import TypeSerializer, TypeDeserializer
+from utils.snow import CR_STATE
+
+from iam_role_orchestrator_cr_implement import (
+    prepare_in_progress_change_data,
+    check_if_update_change,
+    is_implemented_change,
+    check_and_update_cr_info,
+    lambda_handler
+)
+
+# Fixtures
+@pytest.fixture
+def serializer():
+    return TypeSerializer()
+
+@pytest.fixture
+def deserializer():
+    return TypeDeserializer()
+
+@pytest.fixture
+def future_date():
+    return (datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S%z')
+
+@pytest.fixture
+def past_date():
+    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S%z')
+
+@pytest.fixture
+def sample_ddb_items(serializer):
+    return [
+        {
+            'cr_number': serializer.serialize('CR1234'),
+            'account_id': serializer.serialize('123456789012'),
+            'request_id': serializer.serialize('req-001'),
+            'cr_status': serializer.serialize('New'),
+            'request_status': serializer.serialize('in_progress'),
+            'account_entity': serializer.serialize({'account': 'test'}),
+            'request_body': serializer.serialize({'role': 'test_role'})
+        },
+        {
+            'cr_number': serializer.serialize('CR1234'),
+            'account_id': serializer.serialize('123456789013'),
+            'request_id': serializer.serialize('req-002'),
+            'cr_status': serializer.serialize('New'),
+            'request_status': serializer.serialize('in_progress')
+        }
+    ]
+
+@pytest.fixture
+def mock_snow_api():
+    with patch('iam_role_orchestrator_cr_implement.SnowApi') as mock:
+        yield mock
+
+@pytest.fixture
+def mock_ddb_client():
+    with patch('iam_role_orchestrator_cr_implement.IamRolesCRStatusDDBClient') as mock:
+        yield mock
+
+# Test prepare_in_progress_change_data
+def test_prepare_in_progress_change_data(sample_ddb_items):
+    result = prepare_in_progress_change_data(sample_ddb_items)
+    assert 'CR1234' in result
+    assert len(result['CR1234']) == 2
+    assert result['CR1234'][0] == sample_ddb_items[0]
+
+# Test check_if_update_change
+@pytest.mark.parametrize("cr_status,expected", [
+    ('New', True),
+    ('Assess', False),
+    ('Implement', False),
+])
+def test_check_if_update_change_various_states(cr_status, expected):
+    change = {
+        'cr_status': {'S': cr_status}
+    }
+    assert check_if_update_change(cr_status, change) == expected
+
+# Test is_implemented_change
+@pytest.mark.parametrize("ddb_response,implementation_date,expected", [
+    (
+        {'status': {'S': 'COMPLETE'}, 'adLds_status': {'S': 'COMPLETE'}},
+        '2024-03-20T10:00:00Z',
+        '2024-03-20T10:00:00Z'
+    ),
+    (
+        {'status': {'S': 'FAILED'}, 'adLds_status': {'S': 'COMPLETE'}},
+        '2024-03-20T10:00:00Z',
+        False
+    ),
+    (
+        None,
+        '2024-03-20T10:00:00Z',
+        False
+    ),
+])
+def test_is_implemented_change_scenarios(ddb_response, implementation_date, expected):
+    with patch('iam_role_orchestrator_cr_implement.IamRolesExecutionStatusDDBClient') as mock_ddb:
+        mock_instance = Mock()
+        mock_instance.query_items_with_account_and_request_id.return_value = ddb_response
+        mock_ddb.return_value = mock_instance
+
+        change = {
+            'account_id': {'S': '123456789012'},
+            'request_id': {'S': 'req-001'},
+            'implementation_date': {'S': implementation_date}
+        }
+        
+        assert is_implemented_change(change) == expected
+
+# Test check_and_update_cr_info for different CR states
+class TestCheckAndUpdateCRInfo:
+    @pytest.fixture
+    def base_change(self, serializer):
+        return {
+            'cr_number': serializer.serialize('CR1234'),
+            'account_id': serializer.serialize('123456789012'),
+            'request_id': serializer.serialize('req-001'),
+            'cr_status': serializer.serialize('New')
+        }
+
+    def test_new_cr(self, mock_snow_api, mock_ddb_client, base_change, future_date):
+        # Setup
+        mock_cr = Mock(status='New', assigned_to='user1', end_date=future_date)
+        mock_snow_api.get_change.return_value = mock_cr
+        
+        result = check_and_update_cr_info(mock_snow_api, mock_ddb_client, 'CR1234', [base_change])
+        
+        assert result == []
+        mock_snow_api.assess_cr.assert_called_once_with('CR1234', 'user1')
+
+    def test_expired_cr(self, mock_snow_api, mock_ddb_client, base_change, past_date):
+        # Setup
+        mock_cr = Mock(status='New', assigned_to='user1', end_date=past_date)
+        mock_snow_api.get_change.return_value = mock_cr
+        
+        result = check_and_update_cr_info(mock_snow_api, mock_ddb_client, 'CR1234', [base_change])
+        
+        assert result == []
+        mock_ddb_client.batch_write_items.assert_called_once()
+
+    def test_implement_cr(self, mock_snow_api, mock_ddb_client, base_change, future_date):
+        # Setup
+        base_change['cr_status'] = {'S': 'Implement'}
+        mock_cr = Mock(status='Implement', assigned_to='user1', end_date=future_date)
+        mock_snow_api.get_change.return_value = mock_cr
+        
+        result = check_and_update_cr_info(mock_snow_api, mock_ddb_client, 'CR1234', [base_change])
+        
+        assert result == [base_change]
+
+    def test_implemented_changes(self, mock_snow_api, mock_ddb_client, base_change, future_date):
+        # Setup
+        mock_cr = Mock(status='Implement', assigned_to='user1', end_date=future_date)
+        mock_snow_api.get_change.return_value = mock_cr
+        
+        with patch('iam_role_orchestrator_cr_implement.is_implemented_change', return_value=True):
+            result = check_and_update_cr_info(mock_snow_api, mock_ddb_client, 'CR1234', [base_change])
+            
+            assert result == []
+            mock_snow_api.close_cr.assert_called_once_with('CR1234', 'user1')
+
+# Test lambda_handler
+def test_lambda_handler_no_items():
+    with patch('iam_role_orchestrator_cr_implement.IamRolesCRStatusDDBClient') as mock_ddb:
+        mock_ddb.return_value.query_items_with_index.return_value = []
+        
+        result = lambda_handler({}, {})
+        assert result is None
+
+@patch('iam_role_orchestrator_cr_implement.get_secret')
+@patch('iam_role_orchestrator_cr_implement.SfnRequest')
+def test_lambda_handler_with_available_changes(mock_sfn, mock_get_secret, sample_ddb_items, mock_snow_api, mock_ddb_client):
+    # Setup
+    mock_ddb_client.return_value.query_items_with_index.return_value = sample_ddb_items
+    mock_get_secret.return_value = '{"sn_authentication_bearer_token": "token", "sn_client_id": "id", "sn_client_secret": "secret", "sn_change_x_request_id": "rid", "sn_x_custom": "custom"}'
+    
+    mock_cr = Mock(
+        status='Implement',
+        assigned_to='user1',
+        end_date=(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S%z')
+    )
+    mock_snow_api.return_value.get_change.return_value = mock_cr
+    
+    with patch('iam_role_orchestrator_cr_implement.is_implemented_change', return_value=False):
+        lambda_handler({}, {})
+        
+        # Verify SfnRequest was called
+        mock_sfn.assert_called()
+
+def test_lambda_handler_no_secret():
+    with patch('iam_role_orchestrator_cr_implement.get_secret', return_value=None):
+        result = lambda_handler({}, {})
+        assert result is None
+```
