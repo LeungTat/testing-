@@ -231,8 +231,12 @@ class TestProcess:
         assert mock_item['stage'] == 'close'
 
     @patch('tpamless_cr_status_poller.send_message')
-    def test_process_status_smaller_than_implement(self, mock_send_message, mock_item, mock_snow_change):
+    def test_process_status_smaller_than_implement_future_not_on_hold(self, mock_send_message, mock_item, mock_snow_change):
         mock_snow_change.status = -2  # Status smaller than IMPLEMENT (-1)
+        mock_snow_change.on_hold = "false"
+        future_date = (datetime.now().astimezone(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = future_date
+        
         mock_table = MagicMock()
         mock_sqs = MagicMock()
         mock_snow_api = MagicMock()
@@ -240,14 +244,17 @@ class TestProcess:
         
         process(mock_item, mock_table, mock_sqs, mock_snow_api)
         
-        # Should call send_message with 'cr_check' event
         mock_send_message.assert_called_once()
         mock_send_message.assert_called_with(mock_sqs, mock_item, 'cr_check')
-        assert mock_item['stage'] != 'close'  # Stage should not be changed to close
+        assert mock_item['stage'] == 'in_progress'
 
     @patch('tpamless_cr_status_poller.send_message')
-    def test_process_status_is_in_implement(self, mock_send_message, mock_item, mock_snow_change):
-        mock_snow_change.status = -1  # Status is IMPLEMENT
+    def test_process_status_smaller_than_implement_future_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = -2
+        mock_snow_change.on_hold = "true"
+        future_date = (datetime.now().astimezone(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = future_date
+        
         mock_table = MagicMock()
         mock_sqs = MagicMock()
         mock_snow_api = MagicMock()
@@ -255,12 +262,112 @@ class TestProcess:
         
         process(mock_item, mock_table, mock_sqs, mock_snow_api)
         
-        # Should call send_message with 'cr_trigger' event
+        assert not mock_send_message.called
+        assert mock_item['stage'] == 'in_progress'
+
+    @patch('tpamless_cr_status_poller.send_message')
+    def test_process_status_smaller_than_implement_past_not_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = -2
+        mock_snow_change.on_hold = "false"
+        past_date = (datetime.now().astimezone(timezone.utc) - timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = past_date
+        
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        mock_snow_api = MagicMock()
+        mock_snow_api.get_change.return_value = mock_snow_change
+        
+        process(mock_item, mock_table, mock_sqs, mock_snow_api)
+        
+        assert not mock_send_message.called
+        assert mock_item['stage'] == 'close'
+
+    @patch('tpamless_cr_status_poller.send_message')
+    def test_process_status_is_in_implement_future_not_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = -1  # IMPLEMENT state
+        mock_snow_change.on_hold = "false"
+        future_date = (datetime.now().astimezone(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = future_date
+        
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        mock_snow_api = MagicMock()
+        mock_snow_api.get_change.return_value = mock_snow_change
+        
+        process(mock_item, mock_table, mock_sqs, mock_snow_api)
+        
         mock_send_message.assert_called_once()
         mock_send_message.assert_called_with(mock_sqs, mock_item, 'cr_trigger')
-        # Verify it's not called with 'cr_check'
         assert not any('cr_check' in call[0][2] for call in mock_send_message.call_args_list)
-        assert mock_item['stage'] == 'in_progress'  # Stage should be in_progress
+        assert mock_item['stage'] == 'in_progress'
+
+    @patch('tpamless_cr_status_poller.send_message')
+    def test_process_status_is_in_implement_future_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = -1
+        mock_snow_change.on_hold = "true"
+        future_date = (datetime.now().astimezone(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = future_date
+        
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        mock_snow_api = MagicMock()
+        mock_snow_api.get_change.return_value = mock_snow_change
+        
+        process(mock_item, mock_table, mock_sqs, mock_snow_api)
+        
+        assert not mock_send_message.called
+        assert mock_item['stage'] == 'in_progress'
+
+    @patch('tpamless_cr_status_poller.send_message')
+    def test_process_status_is_in_implement_past_not_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = -1
+        mock_snow_change.on_hold = "false"
+        past_date = (datetime.now().astimezone(timezone.utc) - timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = past_date
+        
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        mock_snow_api = MagicMock()
+        mock_snow_api.get_change.return_value = mock_snow_change
+        
+        process(mock_item, mock_table, mock_sqs, mock_snow_api)
+        
+        assert not mock_send_message.called
+        assert mock_item['stage'] == 'close'
+
+    @patch('tpamless_cr_status_poller.send_message')
+    def test_process_status_greater_than_implement_future_not_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = 1  # Status greater than IMPLEMENT (-1)
+        mock_snow_change.on_hold = "false"
+        future_date = (datetime.now().astimezone(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = future_date
+        
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        mock_snow_api = MagicMock()
+        mock_snow_api.get_change.return_value = mock_snow_change
+        
+        process(mock_item, mock_table, mock_sqs, mock_snow_api)
+        
+        assert not mock_send_message.called
+        assert mock_item['stage'] == 'close'
+
+    @patch('tpamless_cr_status_poller.send_message')
+    def test_process_status_greater_than_implement_future_on_hold(self, mock_send_message, mock_item, mock_snow_change):
+        mock_snow_change.status = 1
+        mock_snow_change.on_hold = "true"
+        future_date = (datetime.now().astimezone(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat()
+        mock_snow_change.start_date = future_date
+        
+        mock_table = MagicMock()
+        mock_sqs = MagicMock()
+        mock_snow_api = MagicMock()
+        mock_snow_api.get_change.return_value = mock_snow_change
+        
+        process(mock_item, mock_table, mock_sqs, mock_snow_api)
+        
+        assert not mock_send_message.called
+        assert mock_item['stage'] == 'close'
 
 class TestLambdaHandler:
     @patch('tpamless_cr_status_poller.BotoClient')
@@ -298,5 +405,4 @@ class TestLambdaHandler:
         
         assert result is None
         mock_boto.get_secret.assert_called_once_with(secret_name='test-secret')
-
-``` 
+```
