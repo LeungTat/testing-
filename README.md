@@ -1,166 +1,134 @@
 ```
+import json
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
 import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch, MagicMock
-from botocore.exceptions import ClientError
+from tpamless_cr_status_poller import (get_available_crs, is_in_implement_state,
+                                      process, send_message, update_db_item,
+                                      update_item_if_changed)
 
-# Add mock for Boto3Client
-@pytest.fixture
-def mock_boto3_client():
-    with patch('utils.aws.Boto3Client') as mock:
-        mock_instance = Mock()
-        mock_instance.get_client.return_value = Mock()
-        mock.return_value = mock_instance
-        yield mock
-
-# Update the DynamoDB client mocks to use Boto3Client
-@pytest.fixture
-def mock_ddb_client(mock_boto3_client):
-    with patch('utils.aws.IamRolesCRStatusDDBClient') as mock:
-        mock_instance = Mock()
-        # Mock the query methods
-        mock_instance.query_items_with_index.return_value = []
-        mock_instance.batch_write_items.return_value = None
-        mock_instance.update_item.return_value = None
-        mock.return_value = mock_instance
-        yield mock_instance
 
 @pytest.fixture
-def mock_execution_ddb_client(mock_boto3_client):
-    with patch('utils.aws.IamRolesExecutionStatusDDBClient') as mock:
-        mock_instance = Mock()
-        mock_instance.query_items_with_account_and_request_id.return_value = None
-        mock.return_value = mock_instance
-        yield mock_instance
+def mock_snow_change():
+    change = MagicMock()
+    change.status = 4  # IMPLEMENT state
+    change.start_date = "2024-03-20T10:00:00+00:00"
+    change.end_date = "2024-12-31T23:59:59+00:00"
+    change.last_submission_date = "2024-03-19T15:00:00+00:00"
+    change.category = "Normal"
+    change.on_hold = "false"
+    return change
 
-# Test is_implemented_change with proper AWS mocks
-def test_is_implemented_change(mock_execution_ddb_client):
-    # Setup
-    change = {
-        'account_id': {'S': '123456789012'},
-        'request_id': {'S': 'req-001'},
-        'implementation_date': {'S': '2024-03-20T10:00:00Z'}
+@pytest.fixture
+def mock_item():
+    return {
+        'change_number': 'CHG0012345',
+        'owner': 'test-owner',
+        'repo_name': 'test-repo',
+        'release_id': '123',
+        'pr_number': '456',
+        'ttl': '1234567890',
+        'stage': 'in_progress',
+        'start_date': '2024-03-20T10:00:00+00:00',
+        'end_date': '2024-12-31T23:59:59+00:00',
+        'implement_date': '',
+        'actual_last_submission_date': '2024-03-19T15:00:00+00:00'
+    }
+
+def test_send_message(mock_item):
+    mock_sqs = MagicMock()
+    
+    send_message(mock_sqs, mock_item, 'cr_trigger')
+    
+    mock_sqs.send_message.assert_called_once()
+    sent_payload = json.loads(mock_sqs.send_message.call_args[1]['MessageBody'])
+    assert sent_payload['event_name'] == 'cr_trigger'
+    assert 'ttl' not in sent_payload['event_payload']
+    assert isinstance(sent_payload['event_payload']['release_id'], int)
+    assert isinstance(sent_payload['event_payload']['pr_number'], int)
+
+def test_update_db_item():
+    mock_table = MagicMock()
+    
+    update_db_item(
+        mock_table,
+        'CHG0012345',
+        'implement',
+        '2024-03-20T10:00:00+00:00',
+        '2024-12-31T23:59:59+00:00',
+        '2024-03-20T10:00:00+00:00',
+        '2024-03-19T15:00:00+00:00'
+    )
+    
+    mock_table.update_item.assert_called_once()
+
+def test_get_available_crs():
+    mock_table = MagicMock()
+    mock_table.query.return_value = {
+        'Items': [{'change_number': 'CHG0012345'}],
+        'LastEvaluatedKey': None
     }
     
-    # Mock successful implementation
-    mock_execution_ddb_client.query_items_with_account_and_request_id.return_value = {
-        'status': {'S': 'COMPLETE'},
-        'adLds_status': {'S': 'COMPLETE'}
-    }
+    results = list(get_available_crs(mock_table))
+    assert len(results) == 1
+    assert results[0] == [{'change_number': 'CHG0012345'}]
+
+def test_get_available_crs_with_error():
+    mock_table = MagicMock()
+    mock_table.query.side_effect = Exception("DynamoDB error")
     
-    result = is_implemented_change(change)
-    assert result == '2024-03-20T10:00:00Z'
+    results = list(get_available_crs(mock_table))
+    assert len(results) == 1
+    assert results[0] == []
+
+def test_is_in_implement_state():
+    future_date = (datetime.now().astimezone(timezone.utc)
+                  .replace(microsecond=0).isoformat())
     
-    # Verify the correct AWS method was called
-    mock_execution_ddb_client.query_items_with_account_and_request_id.assert_called_once_with(
-        '123456789012',
-        'req-001'
-    )
+    # Test implement state with future date
+    assert is_in_implement_state(4, future_date) is True
+    
+    # Test implement state with past date
+    past_date = "2023-01-01T00:00:00+00:00"
+    assert is_in_implement_state(4, past_date) is False
+    
+    # Test non-implement state
+    assert is_in_implement_state(3, future_date) is False
 
-# Test lambda_handler with proper AWS mocks
-@patch('iam_role_orchestrator_cr_implement.get_secret')
-@patch('iam_role_orchestrator_cr_implement.SfnRequest')
-def test_lambda_handler_with_available_changes(
-    mock_sfn,
-    mock_get_secret,
-    mock_ddb_client,
-    mock_snow_api,
-    mock_boto3_client
-):
-    # Setup DynamoDB response
-    mock_ddb_client.query_items_with_index.return_value = [{
-        'cr_number': {'S': 'CR1234'},
-        'account_id': {'S': '123456789012'},
-        'request_id': {'S': 'req-001'},
-        'cr_status': {'S': 'Implement'},
-        'account_entity': {'M': {'account': {'S': 'test'}}},
-        'request_body': {'M': {'role': {'S': 'test_role'}}}
-    }]
+def test_update_item_if_changed():
+    item = {'field': 'old_value'}
+    
+    # Test when value changes
+    assert update_item_if_changed(item, 'field', 'new_value') is True
+    assert item['field'] == 'new_value'
+    
+    # Test when value doesn't change
+    assert update_item_if_changed(item, 'field', 'new_value') is False
 
-    # Setup Snow API response
-    mock_snow_api.return_value.get_change.return_value = Mock(
-        status='Implement',
-        assigned_to='user1',
-        end_date=(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S%z')
-    )
+@patch('tpamless_cr_status_poller.send_message')
+def test_process(mock_send_message, mock_item, mock_snow_change):
+    mock_table = MagicMock()
+    mock_sqs = MagicMock()
+    mock_snow_api = MagicMock()
+    mock_snow_api.get_change.return_value = mock_snow_change
+    
+    # Test normal processing
+    process(mock_item, mock_table, mock_sqs, mock_snow_api)
+    
+    mock_snow_api.get_change.assert_called_once_with(mock_item['change_number'])
+    assert mock_send_message.called
 
-    # Setup secret response
-    mock_get_secret.return_value = json.dumps({
-        'sn_authentication_bearer_token': 'token',
-        'sn_client_id': 'id',
-        'sn_client_secret': 'secret',
-        'sn_change_x_request_id': 'rid',
-        'sn_x_custom': 'custom'
-    })
-
-    # Execute
-    lambda_handler({}, {})
-
-    # Verify
-    mock_ddb_client.query_items_with_index.assert_called_once_with(
-        index_name="request_status_index",
-        conditions={
-            "request_status": {
-                "ComparisonOperator": "EQ",
-                "AttributeValueList": [{"S": "in_progress"}]
-            }
-        },
-        QueryFilter={
-            "cr_number": {
-                "ComparisonOperator": "NE",
-                "AttributeValueList": [{"S": ""}]
-            }
-        }
-    )
-    mock_sfn.assert_called()
-    mock_ddb_client.update_item.assert_called()
-
-# Test check_and_update_cr_info with proper AWS mocks
-def test_check_and_update_cr_info_implement_status(
-    mock_ddb_client,
-    mock_snow_api,
-    mock_execution_ddb_client
-):
-    # Setup
-    cr_number = 'CR1234'
-    changes_data = [{
-        'cr_number': {'S': cr_number},
-        'account_id': {'S': '123456789012'},
-        'request_id': {'S': 'req-001'},
-        'cr_status': {'S': 'Implement'},
-        'implementation_date': {'S': '2024-03-20T10:00:00Z'}
-    }]
-
-    # Mock Snow API response
-    mock_snow_api.return_value.get_change.return_value = Mock(
-        status='Implement',
-        assigned_to='user1',
-        end_date=(datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S%z')
-    )
-
-    # Mock execution status check
-    mock_execution_ddb_client.query_items_with_account_and_request_id.return_value = {
-        'status': {'S': 'IN_PROGRESS'},
-        'adLds_status': {'S': 'IN_PROGRESS'}
-    }
-
-    # Execute
-    result = check_and_update_cr_info(mock_snow_api.return_value, mock_ddb_client, cr_number, changes_data)
-
-    # Verify
-    assert result == changes_data
-    mock_ddb_client.batch_write_items.assert_called_once()
-    expected_attributes = {
-        'implementation_date': {'S': mock.ANY},  # We use mock.ANY because the timestamp will be current
-        'status_message': {
-            'M': {
-                'status_code': {'S': 'schedule_cr'},
-                'description': {'S': 'Waiting for implementing.'}
-            }
-        }
-    }
-    mock_ddb_client.batch_write_items.assert_called_with(
-        put_items=changes_data,
-        replace_attributes=expected_attributes
-    )
+@patch('tpamless_cr_status_poller.send_message')
+def test_process_with_error(mock_send_message, mock_item):
+    mock_table = MagicMock()
+    mock_sqs = MagicMock()
+    mock_snow_api = MagicMock()
+    mock_snow_api.get_change.side_effect = Exception("API error")
+    
+    # Should not raise exception
+    process(mock_item, mock_table, mock_sqs, mock_snow_api)
+    
+    mock_snow_api.get_change.assert_called_once_with(mock_item['change_number'])
+    assert not mock_send_message.called
 ```
