@@ -370,3 +370,95 @@ Add the following policy to the calling Lambda's execution role:
         }
     ]
 }
+
+
+. Lambda Function Implementation
+Here's a detailed Python implementation using AWS Lambda Powertools:
+
+
+import boto3
+import json
+import os
+import requests
+from aws_requests_auth.aws_auth import AWSRequestsAuth
+from aws_lambda_powertools import Logger, Tracer
+
+logger = Logger()
+tracer = Tracer()
+
+@logger.inject_lambda_context
+@tracer.capture_lambda_handler
+def lambda_handler(event, context):
+    try:
+        # API Gateway URL
+        api_endpoint = os.environ['TARGET_API_ENDPOINT']
+        region = os.environ['AWS_REGION']
+        
+        # Get AWS credentials from the Lambda environment
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        
+        # Create AWS SigV4 auth
+        auth = AWSRequestsAuth(
+            aws_access_key=credentials.access_key,
+            aws_secret_access_key=credentials.secret_key,
+            aws_token=credentials.token,
+            aws_host=api_endpoint.replace('https://', '').split('/')[0],
+            aws_region=region,
+            aws_service='execute-api'
+        )
+        
+        # Prepare request data
+        headers = {'Content-Type': 'application/json'}
+        payload = {
+            # Your request data
+            'message': 'Request from Lambda',
+            'timestamp': context.function_version,
+            # Include any data you need to pass
+        }
+        
+        # Log the outgoing request (excluding sensitive data)
+        logger.info(f"Calling API Gateway: {api_endpoint}")
+        
+        # Make the request with SigV4 signing
+        response = requests.post(
+            api_endpoint,
+            auth=auth,
+            headers=headers,
+            json=payload
+        )
+        
+        # Process response
+        if response.status_code >= 200 and response.status_code < 300:
+            logger.info(f"API call successful: {response.status_code}")
+            response_data = response.json()
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'message': 'API call successful',
+                    'apiResponse': response_data
+                })
+            }
+        else:
+            logger.error(f"API call failed: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            return {
+                'statusCode': response.status_code,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'message': 'API call failed',
+                    'error': response.text
+                })
+            }
+            
+    except Exception as e:
+        logger.exception("Error calling API Gateway")
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({
+                'message': 'Internal error',
+                'error': str(e)
+            })
+        }
