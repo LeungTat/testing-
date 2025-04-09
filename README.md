@@ -1,4 +1,46 @@
 ```
+ef validate_aws_credentials(auth_token, event):
+    try:
+        # Create STS client without credentials
+        sts = boto3.client(
+            'sts',
+            aws_access_key_id=None,      
+            aws_secret_access_key=None,
+            aws_session_token=None
+        )
+        
+        # Required headers for SigV4
+        headers = {
+            'Authorization': auth_token,
+            'X-Amz-Date': event['headers'].get('x-amz-date'),
+            'Host': 'sts.amazonaws.com'
+        }
+
+        # Get security token if present
+        security_token = event['headers'].get('x-amz-security-token')
+        if security_token:
+            headers['X-Amz-Security-Token'] = security_token
+
+        # Make the call with both headers AND session token
+        response = sts.get_caller_identity(
+            headers=headers,  # SigV4 headers
+            aws_session_token=security_token  # Session token if using temporary credentials
+        )
+        
+        return {
+            'isValid': True,
+            'accountId': response['Account'],
+            'arn': response['Arn']
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to validate credentials: {str(e)}")
+        return {
+            'isValid': False,
+            'error': str(e)
+        }
+```
+```
 # Combining IAM Authentication with Custom Authorizer Logic
 You're right - in API Gateway, you can typically only select one authorization type per method (either AWS_IAM or a Custom Authorizer, not both). However, there's an elegant solution to achieve both IAM-level security AND custom authorization logic:
 Solution: Create a Custom Authorizer That Validates IAM Credentials
