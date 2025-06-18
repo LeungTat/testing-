@@ -79,9 +79,9 @@ class ReportLabMarkdownConverter:
             spaceBefore=8
         ))
         
-        # Code style
+        # Custom Code style
         self.styles.add(ParagraphStyle(
-            name='Code',
+            name='CustomCode',
             parent=self.styles['Normal'],
             fontSize=10,
             fontName='Courier',
@@ -92,9 +92,9 @@ class ReportLabMarkdownConverter:
             spaceBefore=6
         ))
         
-        # Quote style
+        # Custom Quote style
         self.styles.add(ParagraphStyle(
-            name='Quote',
+            name='CustomQuote',
             parent=self.styles['Normal'],
             fontSize=11,
             leftIndent=0.5*inch,
@@ -167,12 +167,13 @@ class ReportLabMarkdownConverter:
             return f'![{alt_text}]({temp_path})'
         except Exception as e:
             print(f"Error downloading image {url}: {e}")
-            return f'![{alt_text}]({url})'
+            # Return empty string to skip the image instead of causing errors
+            return ""
     
     def _add_image_to_story(self, img_path: str, alt_text: str = ""):
         """Add image to the story"""
         try:
-            if os.path.exists(img_path):
+            if os.path.exists(img_path) and img_path.strip():
                 # Get image dimensions
                 with Image.open(img_path) as img:
                     width, height = img.size
@@ -201,11 +202,24 @@ class ReportLabMarkdownConverter:
                     caption = Paragraph(f"<i>{alt_text}</i>", self.styles['Normal'])
                     self.story.append(caption)
                     self.story.append(Spacer(1, 12))
+            elif alt_text:
+                # If image is missing but we have alt text, add placeholder text
+                placeholder = Paragraph(f"<i>[Image: {alt_text}]</i>", self.styles['Normal'])
+                self.story.append(placeholder)
+                self.story.append(Spacer(1, 12))
         except Exception as e:
             print(f"Error adding image {img_path}: {e}")
+            # Add placeholder text for failed images
+            if alt_text:
+                placeholder = Paragraph(f"<i>[Image not available: {alt_text}]</i>", self.styles['Normal'])
+                self.story.append(placeholder)
+                self.story.append(Spacer(1, 12))
     
     def _parse_markdown_to_story(self, html_content: str):
         """Parse HTML content and convert to ReportLab story elements"""
+        # Clean problematic HTML elements first
+        html_content = re.sub(r'<a href="#[^"]*"[^>]*>(.*?)</a>', r'\1', html_content)  # Remove internal links
+        
         # Simple HTML parser for basic elements
         lines = html_content.split('\n')
         current_paragraph = []
@@ -246,23 +260,25 @@ class ReportLabMarkdownConverter:
                 code_text = line[11:]  # Remove <pre><code>
                 if line.endswith('</code></pre>'):
                     code_text = code_text[:-13]  # Remove </code></pre>
-                    para = Paragraph(f"<font name='Courier'>{code_text}</font>", self.styles['Code'])
+                    para = Paragraph(f"<font name='Courier'>{code_text}</font>", self.styles['CustomCode'])
                     self.story.append(para)
                     in_code_block = False
                 continue
             elif in_code_block:
                 if line.endswith('</code></pre>'):
                     code_text = line[:-13]
-                    para = Paragraph(f"<font name='Courier'>{code_text}</font>", self.styles['Code'])
+                    para = Paragraph(f"<font name='Courier'>{code_text}</font>", self.styles['CustomCode'])
                     self.story.append(para)
                     in_code_block = False
                 else:
-                    para = Paragraph(f"<font name='Courier'>{line}</font>", self.styles['Code'])
+                    para = Paragraph(f"<font name='Courier'>{line}</font>", self.styles['CustomCode'])
                     self.story.append(para)
                 continue
             
-            # Handle images
-            img_match = re.search(r'<img.*?src="([^"]*)".*?alt="([^"]*)".*?/?>', line)
+            # Handle images - look for processed markdown images
+            img_match = re.search(r'<p><img.*?src="([^"]*)".*?alt="([^"]*)".*?/?></p>', line)
+            if not img_match:
+                img_match = re.search(r'<img.*?src="([^"]*)".*?alt="([^"]*)".*?/?>', line)
             if img_match:
                 img_path = img_match.group(1)
                 alt_text = img_match.group(2)
@@ -272,7 +288,7 @@ class ReportLabMarkdownConverter:
             # Handle blockquotes
             if line.startswith('<blockquote>') and line.endswith('</blockquote>'):
                 text = line[12:-13]  # Remove tags
-                para = Paragraph(text, self.styles['Quote'])
+                para = Paragraph(text, self.styles['CustomQuote'])
                 self.story.append(para)
                 continue
             
@@ -283,6 +299,8 @@ class ReportLabMarkdownConverter:
                 text = re.sub(r'<strong>(.*?)</strong>', r'<b>\1</b>', text)
                 text = re.sub(r'<em>(.*?)</em>', r'<i>\1</i>', text)
                 text = re.sub(r'<code>(.*?)</code>', r'<font name="Courier">\1</font>', text)
+                # Remove problematic internal links that cause ReportLab issues
+                text = re.sub(r'<a href="#[^"]*"[^>]*>(.*?)</a>', r'\1', text)
                 
                 para = Paragraph(text, self.styles['Normal'])
                 self.story.append(para)
@@ -295,7 +313,8 @@ class ReportLabMarkdownConverter:
         # Handle any remaining paragraph content
         if current_paragraph:
             text = ' '.join(current_paragraph)
-            # Clean basic HTML tags
+            # Clean basic HTML tags and problematic links
+            text = re.sub(r'<a href="#[^"]*"[^>]*>(.*?)</a>', r'\1', text)  # Remove internal links
             text = re.sub(r'<[^>]+>', '', text)  # Remove any remaining HTML tags
             if text:
                 para = Paragraph(text, self.styles['Normal'])
