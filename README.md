@@ -1,148 +1,416 @@
 ```
-import pytest
-from unittest.mock import patch, MagicMock
-from http import HTTPStatus
-from iam_role_orchestrator_trigger import app, handle_custom_role, handle_custom_role_road, get_request_status, get_request_status_by_account_id
+#!/usr/bin/env python3
+"""
+Markdown to PDF Converter with Image Support
+Supports both Windows and Linux environments
+Uses only pip-installable dependencies
+"""
 
-# Mock environment variables
-@pytest.fixture(autouse=True)
-def mock_env_vars(monkeypatch):
-    monkeypatch.setenv("CR_CREATION_SQS_QUEUE_URL", "test-queue-url")
-    monkeypatch.setenv("AWS_ROAD_ONBOARDING_REQUEST_SYNC_ROLE", "arn:aws:iam::123456789012:role/test-role")
+import os
+import sys
+import re
+import base64
+import urllib.request
+from pathlib import Path
+from typing import List, Tuple, Optional
+import argparse
 
-# Test cases for /role/create endpoint
-def test_handle_custom_role_success():
-    with patch('iam_role_orchestrator_trigger.sfn_trigger_handler') as mock_handler:
-        mock_handler.return_value = ({"message": "Success"}, HTTPStatus.ACCEPTED.value)
+try:
+    import markdown
+    from markdown.extensions import codehilite, tables, toc
+except ImportError:
+    print("Installing required packages...")
+    os.system(f"{sys.executable} -m pip install markdown")
+    import markdown
+    from markdown.extensions import codehilite, tables, toc
+
+try:
+    from weasyprint import HTML, CSS
+    from weasyprint.css import get_all_computed_styles
+    from weasyprint.css.targets import TargetCollector
+except ImportError:
+    print("Installing weasyprint...")
+    os.system(f"{sys.executable} -m pip install weasyprint")
+    from weasyprint import HTML, CSS
+
+try:
+    from PIL import Image
+except ImportError:
+    print("Installing Pillow...")
+    os.system(f"{sys.executable} -m pip install Pillow")
+    from PIL import Image
+
+import tempfile
+import shutil
+
+
+class MarkdownToPDFConverter:
+    """
+    Converts Markdown files with images to PDF
+    Handles both local and remote images
+    """
+    
+    def __init__(self, css_style: Optional[str] = None):
+        """
+        Initialize the converter
         
-        # Mock the current event
-        app.current_event = MagicMock()
-        app.current_event.raw_event = {"requestContext": {"authorizer": {"is_road": False}}}
-        app.current_event.json_body = {
-            "account_id": "123456789012",
-            "custom_role_name": "test-role"
+        Args:
+            css_style: Optional custom CSS styling
+        """
+        self.css_style = css_style or self._get_default_css()
+        self.temp_dir = None
+        
+    def _get_default_css(self) -> str:
+        """Get default CSS styling for the PDF"""
+        return """
+        @page {
+            size: A4;
+            margin: 2cm;
         }
         
-        response, status_code = handle_custom_role()
-        
-        assert status_code == HTTPStatus.ACCEPTED.value
-        assert response["message"] == "Success"
-        mock_handler.assert_called_once()
-
-def test_handle_custom_role_missing_parameters():
-    app.current_event = MagicMock()
-    app.current_event.raw_event = {"requestContext": {"authorizer": {"is_road": False}}}
-    app.current_event.json_body = {}  # Missing required parameters
-    
-    response, status_code = handle_custom_role()
-    
-    assert status_code == HTTPStatus.BAD_REQUEST.value
-    assert "error" in response
-
-# Test cases for /road/role/create endpoint
-def test_handle_custom_role_road_success():
-    with patch('iam_role_orchestrator_trigger.sfn_trigger_handler') as mock_handler:
-        mock_handler.return_value = ({"message": "Success"}, HTTPStatus.ACCEPTED.value)
-        
-        # Mock the current event with valid ROAD role
-        app.current_event = MagicMock()
-        app.current_event.raw_event = {
-            "requestContext": {
-                "identity": {
-                    "userArn": "arn:aws:iam::123456789012:role/test-role"
-                }
-            }
-        }
-        app.current_event.json_body = {
-            "account_id": "123456789012",
-            "custom_role_name": "test-role"
+        body {
+            font-family: 'DejaVu Sans', Arial, sans-serif;
+            font-size: 12pt;
+            line-height: 1.6;
+            color: #333;
+            max-width: 100%;
         }
         
-        response, status_code = handle_custom_role_road()
-        
-        assert status_code == HTTPStatus.ACCEPTED.value
-        assert response["message"] == "Success"
-        mock_handler.assert_called_once()
-
-def test_handle_custom_role_road_unauthorized():
-    app.current_event = MagicMock()
-    app.current_event.raw_event = {
-        "requestContext": {
-            "identity": {
-                "userArn": "arn:aws:iam::123456789012:role/invalid-role"
-            }
+        h1, h2, h3, h4, h5, h6 {
+            color: #2c3e50;
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
         }
-    }
-    app.current_event.json_body = {
-        "account_id": "123456789012",
-        "custom_role_name": "test-role"
-    }
+        
+        h1 { font-size: 24pt; border-bottom: 2px solid #3498db; padding-bottom: 0.3em; }
+        h2 { font-size: 20pt; border-bottom: 1px solid #bdc3c7; padding-bottom: 0.2em; }
+        h3 { font-size: 16pt; }
+        h4 { font-size: 14pt; }
+        
+        p {
+            margin-bottom: 1em;
+            text-align: justify;
+        }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 1em auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 5px;
+        }
+        
+        code {
+            background-color: #f8f9fa;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: 'DejaVu Sans Mono', monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 1em;
+            overflow-x: auto;
+            font-family: 'DejaVu Sans Mono', monospace;
+            font-size: 0.85em;
+        }
+        
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            border-radius: 0;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            padding-left: 1em;
+            margin: 1em 0;
+            font-style: italic;
+            color: #555;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1em 0;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.5em;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+        }
+        
+        li {
+            margin-bottom: 0.5em;
+        }
+        
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        """
     
-    response, status_code = handle_custom_role_road()
+    def _setup_temp_directory(self):
+        """Create temporary directory for processing"""
+        if self.temp_dir is None:
+            self.temp_dir = tempfile.mkdtemp()
     
-    assert status_code == HTTPStatus.UNAUTHORIZED.value
-    assert response["error"] == "Unauthorized"
-
-# Test cases for /status/<request_id> endpoint
-def test_get_request_status_success():
-    with patch('iam_role_orchestrator_trigger.IamRolesExecutionStatusDDBClient') as mock_ddb:
-        mock_ddb.return_value.query_items_with_index.return_value = [{
-            "custom_role_name": {"S": "test-role"},
-            "account_id": {"S": "123456789012"},
-            "status": {"S": "COMPLETED"},
-            "adIds_status": {"S": "SUCCESS"},
-            "start_at": {"S": "2024-01-01T00:00:00Z"}
-        }]
+    def _cleanup_temp_directory(self):
+        """Clean up temporary directory"""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+            self.temp_dir = None
+    
+    def _process_images(self, markdown_content: str, base_path: str) -> str:
+        """
+        Process images in markdown content
+        Convert relative paths to absolute paths and handle remote images
         
-        response, status_code = get_request_status("test-request-id")
+        Args:
+            markdown_content: The markdown content
+            base_path: Base path for resolving relative image paths
+            
+        Returns:
+            Modified markdown content with processed image paths
+        """
+        self._setup_temp_directory()
         
-        assert status_code == HTTPStatus.OK.value
-        assert response["custom_role_name"] == "test-role"
-        assert response["account_id"] == "123456789012"
-        assert response["iam_role_status"] == "COMPLETED"
-
-def test_get_request_status_not_found():
-    with patch('iam_role_orchestrator_trigger.IamRolesExecutionStatusDDBClient') as mock_ddb:
-        mock_ddb.return_value.query_items_with_index.return_value = []
+        # Pattern to match markdown images: ![alt text](image_path "optional title")
+        img_pattern = r'!\[([^\]]*)\]\(([^)]+)(?:\s+"([^"]*)")?\)'
         
-        response, status_code = get_request_status("non-existent-id")
+        def replace_image(match):
+            alt_text = match.group(1)
+            img_path = match.group(2)
+            title = match.group(3) or ""
+            
+            try:
+                # Handle remote images
+                if img_path.startswith(('http://', 'https://')):
+                    return self._download_remote_image(img_path, alt_text, title)
+                
+                # Handle local images
+                else:
+                    # Convert relative path to absolute
+                    if not os.path.isabs(img_path):
+                        img_path = os.path.join(base_path, img_path)
+                    
+                    if os.path.exists(img_path):
+                        # Copy to temp directory to ensure access
+                        filename = os.path.basename(img_path)
+                        temp_path = os.path.join(self.temp_dir, filename)
+                        shutil.copy2(img_path, temp_path)
+                        
+                        # Return with updated path
+                        title_attr = f' "{title}"' if title else ""
+                        return f'![{alt_text}](file://{os.path.abspath(temp_path)}{title_attr})'
+                    else:
+                        print(f"Warning: Image not found: {img_path}")
+                        return match.group(0)  # Return original if not found
+                        
+            except Exception as e:
+                print(f"Error processing image {img_path}: {e}")
+                return match.group(0)  # Return original on error
         
-        assert status_code == HTTPStatus.NOT_FOUND.value
-        assert response["message"] == "Request not found"
-
-# Test cases for /status/account/<account_id> endpoint
-def test_get_request_status_by_account_id_success():
-    with patch('iam_role_orchestrator_trigger.IamRolesExecutionStatusDDBClient') as mock_ddb:
-        mock_ddb.return_value.query_items_with_account_id.return_value = [
-            {
-                "custom_role_name": {"S": "test-role-1"},
-                "account_id": {"S": "123456789012"},
-                "status": {"S": "COMPLETED"},
-                "adIds_status": {"S": "SUCCESS"},
-                "start_at": {"S": "2024-01-01T00:00:00Z"}
-            },
-            {
-                "custom_role_name": {"S": "test-role-2"},
-                "account_id": {"S": "123456789012"},
-                "status": {"S": "IN_PROGRESS"},
-                "adIds_status": {"S": "PENDING"},
-                "start_at": {"S": "2024-01-02T00:00:00Z"}
-            }
+        return re.sub(img_pattern, replace_image, markdown_content)
+    
+    def _download_remote_image(self, url: str, alt_text: str, title: str) -> str:
+        """
+        Download remote image and return markdown with local path
+        
+        Args:
+            url: Remote image URL
+            alt_text: Alt text for the image
+            title: Title for the image
+            
+        Returns:
+            Markdown image syntax with local path
+        """
+        try:
+            # Generate filename from URL
+            filename = os.path.basename(url.split('?')[0])  # Remove query params
+            if not filename or '.' not in filename:
+                filename = f"image_{hash(url) % 10000}.jpg"
+            
+            temp_path = os.path.join(self.temp_dir, filename)
+            
+            # Download image
+            urllib.request.urlretrieve(url, temp_path)
+            
+            # Verify it's a valid image
+            with Image.open(temp_path) as img:
+                img.verify()
+            
+            title_attr = f' "{title}"' if title else ""
+            return f'![{alt_text}](file://{os.path.abspath(temp_path)}{title_attr})'
+            
+        except Exception as e:
+            print(f"Error downloading image {url}: {e}")
+            return f'![{alt_text}]({url}){"" if not title else f" ({title})"}'
+    
+    def convert_markdown_to_html(self, markdown_content: str) -> str:
+        """
+        Convert markdown content to HTML
+        
+        Args:
+            markdown_content: The markdown content to convert
+            
+        Returns:
+            HTML content
+        """
+        # Configure markdown extensions
+        extensions = [
+            'markdown.extensions.extra',  # Includes tables, footnotes, etc.
+            'markdown.extensions.codehilite',  # Syntax highlighting
+            'markdown.extensions.toc',  # Table of contents
+            'markdown.extensions.nl2br',  # Newline to break
         ]
         
-        response, status_code = get_request_status_by_account_id("123456789012")
+        # Create markdown instance
+        md = markdown.Markdown(extensions=extensions)
         
-        assert status_code == HTTPStatus.OK.value
-        assert len(response["items"]) == 2
-        assert response["items"][0]["custom_role_name"] == "test-role-1"
-        assert response["items"][1]["custom_role_name"] == "test-role-2"
+        # Convert to HTML
+        html_content = md.convert(markdown_content)
+        
+        # Wrap in full HTML document
+        full_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Converted Document</title>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+        
+        return full_html
+    
+    def convert_file(self, input_file: str, output_file: str) -> bool:
+        """
+        Convert a markdown file to PDF
+        
+        Args:
+            input_file: Path to input markdown file
+            output_file: Path to output PDF file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Read markdown file
+            with open(input_file, 'r', encoding='utf-8') as f:
+                markdown_content = f.read()
+            
+            return self.convert_content(markdown_content, output_file, os.path.dirname(os.path.abspath(input_file)))
+            
+        except Exception as e:
+            print(f"Error converting file {input_file}: {e}")
+            return False
+        finally:
+            self._cleanup_temp_directory()
+    
+    def convert_content(self, markdown_content: str, output_file: str, base_path: str = ".") -> bool:
+        """
+        Convert markdown content to PDF
+        
+        Args:
+            markdown_content: The markdown content to convert
+            output_file: Path to output PDF file
+            base_path: Base path for resolving relative image paths
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Process images in markdown
+            processed_content = self._process_images(markdown_content, base_path)
+            
+            # Convert to HTML
+            html_content = self.convert_markdown_to_html(processed_content)
+            
+            # Create PDF
+            html_doc = HTML(string=html_content)
+            css_doc = CSS(string=self.css_style)
+            
+            html_doc.write_pdf(output_file, stylesheets=[css_doc])
+            
+            print(f"Successfully converted to PDF: {output_file}")
+            return True
+            
+        except Exception as e:
+            print(f"Error converting content: {e}")
+            return False
+        finally:
+            self._cleanup_temp_directory()
 
-def test_get_request_status_by_account_id_not_found():
-    with patch('iam_role_orchestrator_trigger.IamRolesExecutionStatusDDBClient') as mock_ddb:
-        mock_ddb.return_value.query_items_with_account_id.return_value = []
-        
-        response, status_code = get_request_status_by_account_id("non-existent-account")
-        
-        assert status_code == HTTPStatus.NOT_FOUND.value
-        assert response["message"] == "Request not found"
+
+def main():
+    """Main function to handle command line arguments"""
+    parser = argparse.ArgumentParser(description='Convert Markdown files with images to PDF')
+    parser.add_argument('input', help='Input markdown file path')
+    parser.add_argument('-o', '--output', help='Output PDF file path (default: same name as input with .pdf extension)')
+    parser.add_argument('--css', help='Custom CSS file path')
+    
+    args = parser.parse_args()
+    
+    # Determine output file path
+    if args.output:
+        output_file = args.output
+    else:
+        base_name = os.path.splitext(args.input)[0]
+        output_file = f"{base_name}.pdf"
+    
+    # Load custom CSS if provided
+    css_style = None
+    if args.css and os.path.exists(args.css):
+        with open(args.css, 'r', encoding='utf-8') as f:
+            css_style = f.read()
+    
+    # Create converter and convert file
+    converter = MarkdownToPDFConverter(css_style)
+    success = converter.convert_file(args.input, output_file)
+    
+    if success:
+        print(f"Conversion completed successfully!")
+        print(f"Output: {os.path.abspath(output_file)}")
+    else:
+        print("Conversion failed!")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
 ```
+
+
+# Install dependencies
+pip install markdown reportlab Pillow html2text
+
+# Test with sample file
+python md_to_pdf_reportlab.py sample.md
+
+# Or use WeasyPrint version (if system deps available)
+pip install weasyprint
+python new.py sample.md
